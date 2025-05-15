@@ -1,43 +1,32 @@
-const mongoose = require('mongoose')
+// models/LiveSessions.js
+const mongoose = require('mongoose');
 
-const Schema = mongoose.Schema;
-// const ObjectId = Schema.ObjectId;
+const answerSchema = new mongoose.Schema({
+    questionIndex: { type: Number, required: true },
+    answerIndex: { type: Number, required: true },
+    isCorrect: { type: Boolean, required: true },
+    answeredAt: { type: Date, default: Date.now }
+}, { _id: false }); // Cevaplar için ayrı _id oluşturma
 
-const liveSessionSchema = new Schema ({
-    sessionid : {
-        type : String,
-        required : true,
-        unique : true
-    },
-    quizId : {
-        type : Schema.Types.ObjectId,
-        ref : "Quiz",
-        required : true
-    },
-    participants : [{
-        userId : {
-            type : Schema.Types.ObjectId,
-            ref : "User"
-        },
-        score : {
-            type : Number,
-            default : 0
-        }
-    }],
-    currentQuestionIndex : {
-        type : Number,
-        default : 0
-    },
-    isActive : {
-        type : Boolean,
-        default : true
-    },
-    createdAt : {
-        type : Date,
-        default : Date.now()
+const participantSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Users', required: true },
+    score: { type: Number, default: 0 },
+    answers: {
+        type: [answerSchema], // answerSchema'yı burada kullanıyoruz
+        default: [] // Varsayılan olarak boş bir dizi ata
     }
-})
+}, { _id: false }); // Katılımcılar için ayrı _id oluşturma
 
-const LiveSessionModel = mongoose.model('LiveSessionModel', liveSessionSchema)
+const liveSessionSchema = new mongoose.Schema({
+    quizId: { type: mongoose.Schema.Types.ObjectId, ref: 'Quiz', required: true },
+    sessionid: { type: String, required: true, unique: true, default: () => new mongoose.Types.ObjectId().toString() },
+    isActive: { type: Boolean, default: true },
+    currentQuestionIndex: { type: Number, default: 0 },
+    participants: [participantSchema], // participantSchema'yı burada kullanıyoruz
+    createdAt: { type: Date, default: Date.now },
+    endedAt: { type: Date, default: null }
+});
 
-module.exports = LiveSessionModel
+const LiveSessionModel = mongoose.model('LiveSession', liveSessionSchema);
+
+module.exports = mongoose.models.LiveSession || mongoose.model('LiveSession', liveSessionSchema);

@@ -26,7 +26,7 @@ const quizSchema = new Schema ({
     questions : [questionSchema],
     createdBy : {
         type : Schema.Types.ObjectId,
-        ref : "User",
+        ref : "Users",
         required : true
     },
     createdAt : {
@@ -35,8 +35,10 @@ const quizSchema = new Schema ({
     }
 })
 
-const QuestionModel = mongoose.model('QuestionModel', questionSchema)
-const QuizModel = mongoose.model('QuizModel', quizSchema)
+const QuestionModel = mongoose.models.Question || mongoose.model('Question', questionSchema);
+const QuizModel = mongoose.models.Quiz || mongoose.model('Quiz', quizSchema);
 
-module.exports = QuestionModel
-module.exports = QuizModel
+module.exports = {
+    QuestionModel,
+    QuizModel
+};
