@@ -28,24 +28,24 @@ const userSchema = new Schema({
     }
 });
 
-// Hash password before saving
+// Hash password
 userSchema.pre('save', async function(next) {
     if (!this.isModified('password')) return next();
-    try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
+        try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
     } catch (err) {
-    next(err);
+        next(err);
     }
 });
 
-// Method to compare passwords
+// Compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
     return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Remove password from JSON output
+// Remove password
 userSchema.methods.toJSON = function() {
     const userObject = this.toObject();
     delete userObject.password;

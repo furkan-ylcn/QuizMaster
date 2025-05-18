@@ -1,12 +1,11 @@
-// __tests__/users.api.test.js
 const request = require('supertest');
 const mongoose = require('mongoose');
 const { app, serverInstance } = require('../server');
 const UserModel = require('../models/Users');
-const { generateToken } = require('../config/passport'); // Token üretmek için
+const { generateToken } = require('../config/passport');
 
 describe('Users API Endpoints', () => {
-    let playerUser, instructorUser, adminUser; // adminUser yerine instructorUser'ı admin gibi kullanacağız
+    let playerUser, instructorUser, adminUser;
     let playerToken, instructorToken;
 
     const createTestUser = async (userData) => {
@@ -56,18 +55,18 @@ describe('Users API Endpoints', () => {
                 .send(newUser);
             expect(res.statusCode).toEqual(201);
             expect(res.body).toHaveProperty('username', newUser.username);
-            expect(res.body).not.toHaveProperty('password'); // Şifre dönmemeli
+            expect(res.body).not.toHaveProperty('password');
         });
 
         it('should fail to create a user with an existing username', async () => {
             const res = await request(app)
                 .post('/createUser')
                 .send({
-                    username: 'testplayer_users', // Zaten var
+                    username: 'testplayer_users',
                     email: 'another_email@example.com',
                     password: 'password123'
                 });
-            expect(res.statusCode).toEqual(400); // Mongoose unique hatası
+            expect(res.statusCode).toEqual(400);
             expect(res.body).toHaveProperty('error');
         });
 
@@ -76,7 +75,7 @@ describe('Users API Endpoints', () => {
                 .post('/createUser')
                 .send({
                     username: 'another_username',
-                    email: 'player_users@example.com', // Zaten var
+                    email: 'player_users@example.com',
                     password: 'password123'
                 });
             expect(res.statusCode).toEqual(400);
@@ -102,7 +101,6 @@ describe('Users API Endpoints', () => {
                 .set('Authorization', `Bearer ${instructorToken}`);
             expect(res.statusCode).toEqual(200);
             expect(Array.isArray(res.body)).toBe(true);
-            // En azından oluşturduğumuz test kullanıcıları listede olmalı
             expect(res.body.length).toBeGreaterThanOrEqual(2);
         });
 
@@ -110,7 +108,7 @@ describe('Users API Endpoints', () => {
             const res = await request(app)
                 .get('/getUsers')
                 .set('Authorization', `Bearer ${playerToken}`);
-            expect(res.statusCode).toEqual(200); // server.js'de sadece requireAuth var, role check yok
+            expect(res.statusCode).toEqual(200);
             expect(Array.isArray(res.body)).toBe(true);
         });
 
@@ -145,28 +143,28 @@ describe('Users API Endpoints', () => {
 
         it('should allow an instructor to update another user\'s information', async () => {
             const res = await request(app)
-                .put(`/updateUser/${tempUserId}`) // playerUser._id yerine tempUserId
+                .put(`/updateUser/${tempUserId}`)
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send({ username: 'updated_by_instructor', role: 'player' });
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('username', 'updated_by_instructor');
         });
-        
+
         it('should allow an instructor to update another user\'s role', async () => {
             const res = await request(app)
                 .put(`/updateUser/${tempUserId}`)
                 .set('Authorization', `Bearer ${instructorToken}`)
-                .send({ role: 'instructor' }); // Rolü instructor yap
+                .send({ role: 'instructor' });
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('role', 'instructor');
         });
 
         it('should not allow a player to update another user\'s information', async () => {
             const res = await request(app)
-                .put(`/updateUser/${instructorUser._id}`) // Başka bir kullanıcı (instructor)
-                .set('Authorization', `Bearer ${playerToken}`) // player token'ı ile
+                .put(`/updateUser/${instructorUser._id}`)
+                .set('Authorization', `Bearer ${playerToken}`)
                 .send({ email: 'hacker_attempt@example.com' });
-            expect(res.statusCode).toEqual(403); // Forbidden
+            expect(res.statusCode).toEqual(403);
         });
 
         it('should return 404 if user to update is not found', async () => {
@@ -179,8 +177,6 @@ describe('Users API Endpoints', () => {
         });
 
         it('should not allow updating password directly without proper handling (password should be hashed by pre-save hook)', async () => {
-            // Bu test, şifrenin doğrudan body'den alınıp hash'lenmeden kaydedilmediğini doğrular.
-            // Modeldeki pre-save hook bu işi yapmalı.
             const newPassword = "newpassword123";
             const res = await request(app)
                 .put(`/updateUser/${playerUser._id}`)
@@ -188,24 +184,22 @@ describe('Users API Endpoints', () => {
                 .send({ password: newPassword });
             expect(res.statusCode).toEqual(200);
 
-            // Veritabanından kullanıcıyı çekip şifrenin hash'lendiğini doğrula
             const updatedUserFromDB = await UserModel.findById(playerUser._id);
-            expect(updatedUserFromDB.password).not.toEqual(newPassword); // Hashlenmiş olmalı
+            expect(updatedUserFromDB.password).not.toEqual(newPassword);
             const isMatch = await updatedUserFromDB.comparePassword(newPassword);
-            expect(isMatch).toBe(true); // Yeni şifre ile eşleşmeli
+            expect(isMatch).toBe(true);
         });
     });
 
     describe('DELETE /deleteUser/:userId', () => {
         let userToDeleteId;
-        let uniqueCounter = 0; // Benzersizlik için sayaç
+        let uniqueCounter = 0;
 
         beforeEach(async () => {
             uniqueCounter++;
             const uniqueUsername = `user_to_delete_${uniqueCounter}`;
             const uniqueEmail = `delete_${uniqueCounter}@example.com`;
 
-            // Önce bu kullanıcı adıyla veya e-postayla var olan bir kullanıcı varsa temizle (opsiyonel ama daha güvenli)
             await UserModel.deleteOne({ username: uniqueUsername });
             await UserModel.deleteOne({ email: uniqueEmail });
 
@@ -232,7 +226,7 @@ describe('Users API Endpoints', () => {
             const res = await request(app)
                 .delete(`/deleteUser/${userToDeleteId}`)
                 .set('Authorization', `Bearer ${playerToken}`);
-            expect(res.statusCode).toEqual(403); // Forbidden - requireRole('instructor')
+            expect(res.statusCode).toEqual(403);
         });
 
         it('should return 404 if user to delete is not found', async () => {
@@ -263,7 +257,7 @@ describe('Users API Endpoints', () => {
             const res = await request(app)
                 .get('/instructor-dashboard')
                 .set('Authorization', `Bearer ${playerToken}`);
-            expect(res.statusCode).toEqual(403); // Forbidden - requireRole('instructor')
+            expect(res.statusCode).toEqual(403);
         });
 
         it('should fail to access instructor dashboard if not authenticated', async () => {

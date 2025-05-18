@@ -1,4 +1,3 @@
-// __tests__/quizzes.api.test.js
 const request = require('supertest');
 const mongoose = require('mongoose');
 const { app, serverInstance } = require('../server');
@@ -9,7 +8,7 @@ const { generateToken } = require('../config/passport');
 describe('Quizzes API Endpoints', () => {
     let playerUser, instructorUser;
     let playerToken, instructorToken;
-    let testQuizId; // Oluşturulan ana quiz'in ID'sini saklamak için
+    let testQuizId;
 
     const createTestUser = async (userData) => {
         await UserModel.deleteOne({ username: userData.username });
@@ -20,23 +19,12 @@ describe('Quizzes API Endpoints', () => {
     };
 
     beforeAll(async () => {
-        // Veritabanı bağlantısını bekle veya kur
-        // Not: server.js zaten bağlantıyı kuruyorsa ve testler server başladıktan sonra çalışıyorsa
-        // buradaki mongoose.connect çağrısı gereksiz olabilir veya çatışmaya yol açabilir.
-        // Sadece bağlantının açık olduğundan emin olmak yeterli olabilir.
-        // Örnek olarak MONGO_URI_TEST kullanıldı, kendi konfigürasyonunuza göre ayarlayın.
-        // Eğer server.js'deki bağlantı yeterliyse, bu kısmı yorumlayabilir veya silebilirsiniz.
         if (mongoose.connection.readyState === 0) {
-            // Test veritabanı için farklı bir URI kullanmak iyi bir pratiktir.
-            // Örneğin: process.env.MONGO_URI_TEST veya sabit bir test URI'si
-            // Şimdilik server.js'deki bağlantıyı kullandığını varsayalım ve sadece state kontrolü yapalım.
-            // await mongoose.connect('mongodb+srv://furkanyalcin07:FGP5hnZV0kHbqqEU@quizdb.rqihj3o.mongodb.net/quizDB_test?retryWrites=true&w=majority&appName=QuizDB');
         }
-        // Bağlantının kurulmasını bekle
         while (mongoose.connection.readyState !== 1) {
-            await new Promise(resolve => setTimeout(resolve, 500)); // Bağlantı kurulana kadar bekle
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
-        
+
         await UserModel.deleteMany({});
         await QuizModel.deleteMany({});
 
@@ -60,10 +48,6 @@ describe('Quizzes API Endpoints', () => {
     afterAll(async () => {
         await UserModel.deleteMany({});
         await QuizModel.deleteMany({});
-        // Eğer beforeAll'da yeni bir bağlantı açtıysanız burada kapatın.
-        // Eğer server.js'deki bağlantıyı kullanıyorsanız, mongoose.disconnect() server'ı da etkileyebilir.
-        // Genellikle serverInstance.close() mongoose bağlantısını da kapatır (uygulamaya bağlı).
-        // await mongoose.disconnect(); 
         if (serverInstance) {
             await new Promise(resolve => serverInstance.close(resolve));
         }
@@ -80,7 +64,7 @@ describe('Quizzes API Endpoints', () => {
                     {
                         text: 'What is 2+2?',
                         options: ['3', '4', '5'],
-                        correctAnswer: 1 // Index of '4'
+                        correctAnswer: 1
                     }
                 ]
             };
@@ -88,12 +72,12 @@ describe('Quizzes API Endpoints', () => {
                 .post('/quizzes')
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send(newQuizData);
-            
+
             expect(res.statusCode).toEqual(201);
             expect(res.body).toHaveProperty('title', newQuizData.title);
             expect(res.body).toHaveProperty('createdBy', instructorUser._id.toString());
             expect(res.body.questions.length).toBe(1);
-            testQuizId = res.body._id; 
+            testQuizId = res.body._id;
         });
 
         it('should NOT create a quiz if user is a player', async () => {
@@ -114,7 +98,7 @@ describe('Quizzes API Endpoints', () => {
         });
 
         it('should NOT create a quiz with missing title (Bad Request)', async () => {
-            const newQuizData = { 
+            const newQuizData = {
                 questions: [{ text: 'Q?', options: ['A', 'B'], correctAnswer: 0 }]
             };
             const res = await request(app)
@@ -156,17 +140,14 @@ describe('Quizzes API Endpoints', () => {
     describe('GET /quizzes/:quizId', () => {
         it('should get a specific quiz by ID if authenticated', async () => {
             if (!testQuizId) {
-                // Bu testin çalışması için POST testinde bir quiz oluşturulmuş olmalı.
-                // Eğer testQuizId yoksa, bu testi atla.
-                // Jest'te testleri atlamak için it.skip kullanabilirsiniz veya pending()
                 console.warn("Skipping GET /quizzes/:quizId test as testQuizId is not set. Ensure POST test creates a quiz.");
-                return; 
+                return;
             }
 
             const res = await request(app)
                 .get(`/quizzes/${testQuizId}`)
-                .set('Authorization', `Bearer ${playerToken}`); 
-            
+                .set('Authorization', `Bearer ${playerToken}`);
+
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('_id', testQuizId);
             expect(res.body).toHaveProperty('title', 'My First Test Quiz');
@@ -181,7 +162,7 @@ describe('Quizzes API Endpoints', () => {
         });
 
         it('should NOT get a specific quiz if not authenticated', async () => {
-            if (!testQuizId) return; 
+            if (!testQuizId) return;
             const res = await request(app)
                 .get(`/quizzes/${testQuizId}`);
             expect(res.statusCode).toEqual(401);
@@ -195,7 +176,7 @@ describe('Quizzes API Endpoints', () => {
                 {
                     text: 'What is 3+3?',
                     options: ['5', '6', '7'],
-                    correctAnswer: 1 
+                    correctAnswer: 1
                 }
             ]
         };
@@ -209,7 +190,7 @@ describe('Quizzes API Endpoints', () => {
                 .put(`/quizzes/${testQuizId}`)
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send(updatedQuizData);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('title', updatedQuizData.title);
             expect(res.body.questions[0].questionText).toEqual(updatedQuizData.questions[0].questionText);
@@ -249,14 +230,13 @@ describe('Quizzes API Endpoints', () => {
             const tempQuiz = new QuizModel({
                 title: 'Quiz to be deleted',
                 questions: [{ text: 'Delete Q?', options: ['Yes', 'No'], correctAnswer: 0 }],
-                createdBy: instructorUser._id 
+                createdBy: instructorUser._id
             });
             await tempQuiz.save();
             tempQuizIdToDelete = tempQuiz._id.toString();
         });
 
         afterEach(async () => {
-            // Oluşturulan geçici quiz'i temizle, eğer testte silinmediyse
             if (tempQuizIdToDelete) {
                 await QuizModel.findByIdAndDelete(tempQuizIdToDelete);
             }
@@ -266,13 +246,13 @@ describe('Quizzes API Endpoints', () => {
             const res = await request(app)
                 .delete(`/quizzes/${tempQuizIdToDelete}`)
                 .set('Authorization', `Bearer ${instructorToken}`);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('message', 'Quiz deleted successfully');
 
             const deletedQuiz = await QuizModel.findById(tempQuizIdToDelete);
             expect(deletedQuiz).toBeNull();
-            tempQuizIdToDelete = null; // Silindiği için null yap, afterEach'te tekrar silmeye çalışmasın
+            tempQuizIdToDelete = null;
         });
 
         it('should NOT delete a quiz if user is a player', async () => {
@@ -296,5 +276,4 @@ describe('Quizzes API Endpoints', () => {
             expect(res.statusCode).toEqual(404);
         });
     });
-
 });

@@ -1,4 +1,3 @@
-// models/LiveSessions.js
 const mongoose = require('mongoose');
 
 const answerSchema = new mongoose.Schema({
@@ -12,7 +11,7 @@ const participantSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Users', required: true },
     score: { type: Number, default: 0 },
     answers: {
-        type: [answerSchema], // answerSchema'yı burada kullanıyoruz
+        type: [answerSchema],
         default: [] // Varsayılan olarak boş bir dizi ata
     }
 }, { _id: false }); // Katılımcılar için ayrı _id oluşturma
@@ -22,7 +21,7 @@ const liveSessionSchema = new mongoose.Schema({
     sessionid: { type: String, required: true, unique: true, default: () => new mongoose.Types.ObjectId().toString() },
     isActive: { type: Boolean, default: true },
     currentQuestionIndex: { type: Number, default: 0 },
-    participants: [participantSchema], // participantSchema'yı burada kullanıyoruz
+    participants: [participantSchema],
     createdAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null }
 });

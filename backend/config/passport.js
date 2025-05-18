@@ -5,7 +5,7 @@ const ExtractJwt = require('passport-jwt').ExtractJwt;
 const UserModel = require('../models/Users');
 const jwt = require('jsonwebtoken');
 
-// Local strategy for username/password login
+// Local strategy
 passport.use(new LocalStrategy(
     async (username, password, done) => {
         try {
@@ -25,7 +25,7 @@ passport.use(new LocalStrategy(
 // JWT strategy for token authentication
 const jwtOptions = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_SECRET || 'your_jwt_secret_key' // Use environment variable in production
+    secretOrKey: process.env.JWT_SECRET || 'your_jwt_secret_key'
 };
 
 passport.use(new JwtStrategy(jwtOptions, async (jwtPayload, done) => {

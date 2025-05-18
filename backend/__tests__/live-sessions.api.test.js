@@ -1,4 +1,3 @@
-// __tests__/live-sessions.api.test.js
 require('../models/Quizzes');
 require('../models/LiveSessions');
 const request = require('supertest');
@@ -6,9 +5,8 @@ const mongoose = require('mongoose');
 const { app, serverInstance } = require('../server');
 const { generateToken } = require('../config/passport');
 
-// Modelleri dosya başında doğrudan require edelim
 const UserModel = require('../models/Users');
-const { QuizModel } = require('../models/Quizzes'); // server.js'deki gibi
+const { QuizModel } = require('../models/Quizzes');
 const LiveSessionModel = require('../models/LiveSessions');
 
 describe('Live Sessions API Endpoints', () => {
@@ -16,7 +14,6 @@ describe('Live Sessions API Endpoints', () => {
     let playerToken, instructorToken, anotherPlayerToken;
     let testQuiz, anotherTestQuiz;
 
-    // createTestUser fonksiyonu artık global olarak require edilen UserModel'ı kullanacak
     const createTestUser = async (userData) => {
         await UserModel.deleteOne({ username: userData.username });
         await UserModel.deleteOne({ email: userData.email });
@@ -26,14 +23,9 @@ describe('Live Sessions API Endpoints', () => {
     };
 
     beforeAll(async () => {
-        // Sunucunun bağlantıyı kurmasını bekleyin
-        // server.js'in require edilmesi Mongoose bağlantısını başlatmış olmalı
         while (mongoose.connection.readyState !== 1) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // Kısa bir bekleme
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
-        
-        // Modeller zaten bu dosya için global olarak require edildi.
-        // UserModel, QuizModel, LiveSessionModel doğrudan kullanılabilir.
 
         await UserModel.deleteMany({});
         await QuizModel.deleteMany({});
@@ -81,11 +73,10 @@ describe('Live Sessions API Endpoints', () => {
     });
 
     afterAll(async () => {
-        // Modeller global olduğu için silme işlemi doğrudan yapılabilir
         await UserModel.deleteMany({});
         await QuizModel.deleteMany({});
         await LiveSessionModel.deleteMany({});
-        
+
         if (serverInstance) {
             await new Promise(resolve => serverInstance.close(resolve));
         }
@@ -94,7 +85,6 @@ describe('Live Sessions API Endpoints', () => {
         }
     });
 
-    // --- POST /live-sessions ---
     describe('POST /live-sessions', () => {
         it('should create a new live session if user is an instructor', async () => {
             const newSessionData = {
@@ -104,24 +94,23 @@ describe('Live Sessions API Endpoints', () => {
                 .post('/live-sessions')
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send(newSessionData);
-            
+
             expect(res.statusCode).toEqual(201);
             expect(res.body).toHaveProperty('quizId', testQuiz._id.toString());
             expect(res.body).toHaveProperty('sessionid');
-            // Diğer doğrulamalar...
         });
 
         it('should allow specifying a custom sessionid when creating a session (instructor)', async () => {
             const customSessionId = `custom-${new mongoose.Types.ObjectId().toString()}`;
             const newSessionData = {
                 quizId: testQuiz._id.toString(),
-                sessionid: customSessionId 
+                sessionid: customSessionId
             };
             const res = await request(app)
                 .post('/live-sessions')
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send(newSessionData);
-            
+
             expect(res.statusCode).toEqual(201);
             expect(res.body).toHaveProperty('sessionid', customSessionId);
         });
@@ -144,12 +133,12 @@ describe('Live Sessions API Endpoints', () => {
         });
 
         it('should NOT create a live session if quizId is missing', async () => {
-            const newSessionData = { /* quizId eksik */ };
+            const newSessionData = {};
             const res = await request(app)
                 .post('/live-sessions')
                 .set('Authorization', `Bearer ${instructorToken}`)
                 .send(newSessionData);
-            expect(res.statusCode).toEqual(404); 
+            expect(res.statusCode).toEqual(404);
             expect(res.body).toHaveProperty('message', 'Quiz not found for this session');
         });
 
@@ -165,12 +154,11 @@ describe('Live Sessions API Endpoints', () => {
         });
     });
 
-    // --- GET /live-sessions ---
     describe('GET /live-sessions (List Active Sessions)', () => {
         let sessionForListing1, sessionForListing2, inactiveSession;
 
         beforeEach(async () => {
-            await LiveSessionModel.deleteMany({}); 
+            await LiveSessionModel.deleteMany({});
 
             sessionForListing1 = new LiveSessionModel({
                 quizId: testQuiz._id,
@@ -199,13 +187,12 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .get('/live-sessions')
                 .set('Authorization', `Bearer ${playerToken}`);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(Array.isArray(res.body)).toBe(true);
-            expect(res.body.length).toBe(2); 
-            // Diğer doğrulamalar...
+            expect(res.body.length).toBe(2);
             if (res.body.length > 0 && res.body[0].quizId && typeof res.body[0].quizId === 'object') {
-                 expect(res.body[0].quizId).toHaveProperty('title', testQuiz.title);
+                expect(res.body[0].quizId).toHaveProperty('title', testQuiz.title);
             }
         });
 
@@ -213,7 +200,7 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .get('/live-sessions')
                 .set('Authorization', `Bearer ${instructorToken}`);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(Array.isArray(res.body)).toBe(true);
             expect(res.body.length).toBe(2);
@@ -224,7 +211,7 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .get('/live-sessions')
                 .set('Authorization', `Bearer ${playerToken}`);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(Array.isArray(res.body)).toBe(true);
             expect(res.body.length).toBe(0);
@@ -237,7 +224,6 @@ describe('Live Sessions API Endpoints', () => {
         });
     });
 
-    // --- GET /live-sessions/:sessionId ---
     describe('GET /live-sessions/:sessionId (Get Specific Session)', () => {
         let activeSessionForGet;
 
@@ -259,7 +245,6 @@ describe('Live Sessions API Endpoints', () => {
 
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('sessionid', activeSessionForGet.sessionid);
-            // Diğer doğrulamalar...
             if (res.body.quizId && typeof res.body.quizId === 'object') {
                 expect(res.body.quizId).toHaveProperty('_id', testQuiz._id.toString());
                 expect(res.body.quizId).toHaveProperty('title', testQuiz.title);
@@ -273,7 +258,7 @@ describe('Live Sessions API Endpoints', () => {
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('sessionid', activeSessionForGet.sessionid);
         });
-        
+
         it('should return 404 if sessionid does not exist', async () => {
             const nonExistentSessionId = 'non-existent-session-id';
             const res = await request(app)
@@ -295,13 +280,12 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .get(`/live-sessions/${activeSessionForGet.sessionid}`)
                 .set('Authorization', `Bearer ${playerToken}`);
-            
+
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('isActive', false);
         });
     });
 
-    // --- POST /live-sessions/:sessionId/join ---
     describe('POST /live-sessions/:sessionId/join', () => {
         let sessionToJoin;
         beforeEach(async () => {
@@ -320,10 +304,8 @@ describe('Live Sessions API Endpoints', () => {
                 .post(`/live-sessions/${sessionToJoin.sessionid}/join`)
                 .set('Authorization', `Bearer ${playerToken}`);
             expect(res.statusCode).toEqual(200);
-            // Diğer doğrulamalar...
         });
-        // Diğer join testleri...
-         it('should NOT allow joining if session is not active', async () => {
+        it('should NOT allow joining if session is not active', async () => {
             sessionToJoin.isActive = false;
             await sessionToJoin.save();
             const res = await request(app)
@@ -340,16 +322,16 @@ describe('Live Sessions API Endpoints', () => {
         });
 
         it('should NOT allow joining a session if already joined', async () => {
-            await request(app) // İlk katılım
+            await request(app)
                 .post(`/live-sessions/${sessionToJoin.sessionid}/join`)
                 .set('Authorization', `Bearer ${playerToken}`);
-            
-            const res = await request(app) // Tekrar katılım denemesi
+
+            const res = await request(app)
                 .post(`/live-sessions/${sessionToJoin.sessionid}/join`)
                 .set('Authorization', `Bearer ${playerToken}`);
             expect(res.statusCode).toEqual(400);
         });
-        
+
         it('should NOT allow joining if not authenticated', async () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionToJoin.sessionid}/join`);
@@ -357,7 +339,6 @@ describe('Live Sessions API Endpoints', () => {
         });
     });
 
-    // --- POST /live-sessions/:sessionId/answer ---
     describe('POST /live-sessions/:sessionId/answer', () => {
         let sessionForAnswer;
         let questionIndex = 0;
@@ -366,12 +347,9 @@ describe('Live Sessions API Endpoints', () => {
 
         beforeEach(async () => {
             await LiveSessionModel.deleteMany({});
-            
-            // testQuiz'in ve sorularının beforeEach içinde erişilebilir olduğundan emin olun
+
             if (!testQuiz || !testQuiz.questions || testQuiz.questions.length <= questionIndex) {
-                 // Gerekirse testQuiz'i burada yeniden oluşturun veya hata fırlatın
                 console.error("testQuiz or its questions are not available for answer tests setup.");
-                // Testin devam etmemesi için bir hata fırlatılabilir
                 throw new Error("Critical test setup failure: testQuiz not ready for answer tests.");
             }
             correctAnswerIndex = testQuiz.questions[questionIndex].correctAnswer;
@@ -393,14 +371,12 @@ describe('Live Sessions API Endpoints', () => {
                 .set('Authorization', `Bearer ${playerToken}`)
                 .send({ questionIndex, answerIndex: correctAnswerIndex });
             expect(res.statusCode).toEqual(200);
-            // Diğer doğrulamalar...
-            const updatedSession = await LiveSessionModel.findById(sessionForAnswer._id).populate('quizId'); // populate testi
+            const updatedSession = await LiveSessionModel.findById(sessionForAnswer._id).populate('quizId');
             expect(updatedSession.quizId).toBeDefined();
-            if (updatedSession.quizId) { // populate başarılı olduysa
-                 expect(updatedSession.quizId.title).toEqual(testQuiz.title);
+            if (updatedSession.quizId) {
+                expect(updatedSession.quizId.title).toEqual(testQuiz.title);
             }
         });
-        // Diğer answer testleri...
         it('should allow a participant to submit an incorrect answer, score remains same', async () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
@@ -409,17 +385,17 @@ describe('Live Sessions API Endpoints', () => {
             expect(res.statusCode).toEqual(200);
             expect(res.body).toHaveProperty('score', 0);
         });
-        
+
         it('should NOT allow answering the same question twice', async () => {
-            await request(app) // İlk cevap
+            await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
                 .set('Authorization', `Bearer ${playerToken}`)
                 .send({ questionIndex, answerIndex: correctAnswerIndex });
 
-            const res = await request(app) // İkinci cevap denemesi
+            const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
                 .set('Authorization', `Bearer ${playerToken}`)
-                .send({ questionIndex, answerIndex: incorrectAnswerIndex }); 
+                .send({ questionIndex, answerIndex: incorrectAnswerIndex });
             expect(res.statusCode).toEqual(400);
         });
 
@@ -434,7 +410,7 @@ describe('Live Sessions API Endpoints', () => {
         });
 
         it('should NOT allow answering if not the current question', async () => {
-            sessionForAnswer.currentQuestionIndex = questionIndex + 1; 
+            sessionForAnswer.currentQuestionIndex = questionIndex + 1;
             await sessionForAnswer.save();
             const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
@@ -446,7 +422,7 @@ describe('Live Sessions API Endpoints', () => {
         it('should NOT allow answering if user is not a participant', async () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
-                .set('Authorization', `Bearer ${anotherPlayerToken}`) // Farklı bir oyuncu
+                .set('Authorization', `Bearer ${anotherPlayerToken}`)
                 .send({ questionIndex, answerIndex: correctAnswerIndex });
             expect(res.statusCode).toEqual(403);
         });
@@ -455,20 +431,19 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
                 .set('Authorization', `Bearer ${playerToken}`)
-                .send({ questionIndex: 99, answerIndex: 0 }); // Geçersiz soru indeksi
+                .send({ questionIndex: 99, answerIndex: 0 });
             expect(res.statusCode).toEqual(400);
         });
 
-         it('should return 400 for invalid answer index', async () => {
+        it('should return 400 for invalid answer index', async () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionForAnswer.sessionid}/answer`)
                 .set('Authorization', `Bearer ${playerToken}`)
-                .send({ questionIndex, answerIndex: 99 }); // Geçersiz cevap indeksi
+                .send({ questionIndex, answerIndex: 99 });
             expect(res.statusCode).toEqual(400);
         });
     });
 
-    // --- POST /live-sessions/:sessionId/next-question ---
     describe('POST /live-sessions/:sessionId/next-question', () => {
         let sessionForNextQ;
         beforeEach(async () => {
@@ -487,18 +462,16 @@ describe('Live Sessions API Endpoints', () => {
                 .post(`/live-sessions/${sessionForNextQ.sessionid}/next-question`)
                 .set('Authorization', `Bearer ${instructorToken}`);
             expect(res.statusCode).toEqual(200);
-            // Diğer doğrulamalar...
         });
-        // Diğer next-question testleri...
         it('should NOT allow player to move to the next question', async () => {
             const res = await request(app)
                 .post(`/live-sessions/${sessionForNextQ.sessionid}/next-question`)
                 .set('Authorization', `Bearer ${playerToken}`);
-            expect(res.statusCode).toEqual(403); 
+            expect(res.statusCode).toEqual(403);
         });
 
         it('should NOT move to next question if it is the last question', async () => {
-            sessionForNextQ.currentQuestionIndex = testQuiz.questions.length - 1; 
+            sessionForNextQ.currentQuestionIndex = testQuiz.questions.length - 1;
             await sessionForNextQ.save();
             const res = await request(app)
                 .post(`/live-sessions/${sessionForNextQ.sessionid}/next-question`)
@@ -515,7 +488,7 @@ describe('Live Sessions API Endpoints', () => {
             expect(res.statusCode).toEqual(400);
         });
 
-         it('should return 404 if session for next question does not exist', async () => {
+        it('should return 404 if session for next question does not exist', async () => {
             const res = await request(app)
                 .post(`/live-sessions/nonexistent-session/next-question`)
                 .set('Authorization', `Bearer ${instructorToken}`);
@@ -523,7 +496,6 @@ describe('Live Sessions API Endpoints', () => {
         });
     });
 
-    // --- PUT /live-sessions/:sessionId/end ---
     describe('PUT /live-sessions/:sessionId/end', () => {
         let sessionToEnd;
         beforeEach(async () => {
@@ -541,14 +513,12 @@ describe('Live Sessions API Endpoints', () => {
                 .put(`/live-sessions/${sessionToEnd.sessionid}/end`)
                 .set('Authorization', `Bearer ${instructorToken}`);
             expect(res.statusCode).toEqual(200);
-            // Diğer doğrulamalar...
         });
-        // Diğer end testleri...
         it('should NOT allow player to end a session', async () => {
             const res = await request(app)
                 .put(`/live-sessions/${sessionToEnd.sessionid}/end`)
                 .set('Authorization', `Bearer ${playerToken}`);
-            expect(res.statusCode).toEqual(403); 
+            expect(res.statusCode).toEqual(403);
         });
 
         it('should return 404 if session to end does not exist', async () => {
@@ -564,7 +534,7 @@ describe('Live Sessions API Endpoints', () => {
             const res = await request(app)
                 .put(`/live-sessions/${sessionToEnd.sessionid}/end`)
                 .set('Authorization', `Bearer ${instructorToken}`);
-            expect(res.statusCode).toEqual(200); 
+            expect(res.statusCode).toEqual(200);
         });
     });
 });

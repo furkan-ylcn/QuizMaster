@@ -2,8 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const UserModel = require('./models/Users');
-const { QuizModel } = require('./models/Quizzes'); // <<< GÜNCELLENDİ: QuizModel objeden destruct edilerek import edildi
-const LiveSessionModel = require('./models/LiveSessions'); // LiveSessionModel import edildi
+const { QuizModel } = require('./models/Quizzes');
+const LiveSessionModel = require('./models/LiveSessions');
 const { passport, generateToken } = require('./config/passport');
 const { requireAuth, requireSignIn, requireRole } = require('./middleware/auth');
 
@@ -15,23 +15,19 @@ mongoose.connect('mongodb+srv://furkanyalcin07:FGP5hnZV0kHbqqEU@quizdb.rqihj3o.m
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('Failed to connect MongoDB : ', err));
 
-// Auth routes
 app.post('/login', requireSignIn, (req, res) => {
     const token = generateToken(req.user);
     res.json({ token, user: { id: req.user._id, username: req.user.username, role: req.user.role } });
 });
 
-// Protected routes
 app.get('/profile', requireAuth, (req, res) => {
     res.json({ user: req.user });
 });
 
-// Instructor-only route example
 app.get('/instructor-dashboard', requireAuth, requireRole('instructor'), (req, res) => {
     res.json({ message: 'Welcome to the instructor dashboard' });
 });
 
-// User routes (önceden var olanlar)
 app.get('/getUsers', requireAuth, async (req, res) => {
     try {
         const allUsers = await UserModel.find({});
@@ -57,12 +53,10 @@ app.put('/updateUser/:userId', requireAuth, async (req, res) => {
         const { userId } = req.params;
         const updates = req.body;
 
-        // Yetkilendirme kontrolü
         if (req.user.role !== 'instructor' && req.user._id.toString() !== userId) {
             return res.status(403).json({ message: 'Not authorized to update this user' });
         }
 
-        // Eğer şifre güncelleniyorsa, hash'le
         if (updates.password) {
             const salt = await bcrypt.genSalt(10);
             updates.password = await bcrypt.hash(updates.password, salt);
@@ -71,10 +65,9 @@ app.put('/updateUser/:userId', requireAuth, async (req, res) => {
         const updatedUser = await UserModel.findByIdAndUpdate(userId, updates, { new: true });
         if (!updatedUser) return res.status(404).json({ message: 'User not found' });
         
-        res.json(updatedUser); // UserModel'deki toJSON metodu sayesinde şifre burada da dönmeyecek
+        res.json(updatedUser);
     } catch (err) {
         console.log(err);
-        // Mongoose validation error (örn: unique constraint) için daha spesifik hata yönetimi eklenebilir
         if (err.name === 'MongoServerError' && err.code === 11000) {
             return res.status(400).json({ error: 'Username or email already exists.' });
         }
@@ -97,13 +90,10 @@ app.delete('/deleteUser/:userId', requireAuth, requireRole('instructor'), async 
     }
 });
 
-
-// --- Quiz Routes ---
-
 app.post('/quizzes', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
         const { title, questions } = req.body;
-        const newQuiz = new QuizModel({ // QuizModel burada kullanılıyor
+        const newQuiz = new QuizModel({
             title,
             questions,
             createdBy: req.user._id 
@@ -163,13 +153,10 @@ app.delete('/quizzes/:quizId', requireAuth, requireRole('instructor'), async (re
     }
 });
 
-
-// --- Live Session Routes ---
-
 app.post('/live-sessions', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
         const { quizId, sessionid } = req.body;
-        const quiz = await QuizModel.findById(quizId); // QuizModel burada da kullanılıyor
+        const quiz = await QuizModel.findById(quizId);
         if (!quiz) return res.status(404).json({ message: 'Quiz not found for this session' });
 
         const newLiveSession = new LiveSessionModel({
@@ -224,17 +211,16 @@ app.post('/live-sessions/:sessionId/join', requireAuth, async (req, res) => {
 app.post('/live-sessions/:sessionId/answer', requireAuth, async (req, res) => {
     try {
         const { questionIndex, answerIndex } = req.body;
-        const { sessionId } = req.params; // sessionId'yi req.params'tan alalım
+        const { sessionId } = req.params;
         const userId = req.user._id;
 
-        // Gerekli parametrelerin varlığını kontrol et
         if (questionIndex === undefined || answerIndex === undefined) {
             return res.status(400).json({ message: 'Question index and answer index are required.' });
         }
 
         const liveSession = await LiveSessionModel.findOne({ sessionid: sessionId }).populate({
             path: 'quizId',
-            model: QuizModel // QuizModel'in doğru import edildiğinden emin olun
+            model: QuizModel
         });
 
         if (!liveSession) {
@@ -252,8 +238,6 @@ app.post('/live-sessions/:sessionId/answer', requireAuth, async (req, res) => {
             return res.status(403).json({ message: 'You are not a participant in this session' });
         }
 
-        // --- YENİ EKLENEN KONTROLLER ---
-        // 1. Aynı soruya daha önce cevap verilip verilmediğini kontrol et
         const alreadyAnswered = participant.answers.find(ans => ans.questionIndex === questionIndex);
         if (alreadyAnswered) {
             return res.status(400).json({ message: 'You have already answered this question' });
@@ -265,30 +249,26 @@ app.post('/live-sessions/:sessionId/answer', requireAuth, async (req, res) => {
         }
 
         const question = quiz.questions[questionIndex];
-        // 2. answerIndex'in geçerli aralıkta olup olmadığını kontrol et
         if (answerIndex < 0 || answerIndex >= question.options.length) {
             return res.status(400).json({ message: 'Invalid answer index' });
         }
-        // --- KONTROLLER SONU ---
 
         const isCorrect = question.correctAnswer === answerIndex;
         if (isCorrect) {
             participant.score += 1;
         }
 
-        // 3. Katılımcının cevabını kaydet
         participant.answers.push({
             questionIndex,
             answerIndex,
             isCorrect
-            // answeredAt otomatik olarak eklenecek (modelde default değeri var)
         });
 
         await liveSession.save();
         res.json({
             message: 'Answer submitted',
             score: participant.score,
-            isCorrect, // Cevabın doğru olup olmadığını da dönebiliriz
+            isCorrect,
             sessionId: liveSession.sessionid
         });
 
@@ -309,7 +289,7 @@ app.post('/live-sessions/:sessionId/next-question', requireAuth, requireRole('in
         
         const quiz = liveSession.quizId;
         if (!quiz || !quiz.questions) {
-             return res.status(400).json({ message: 'Quiz data missing for this session' });
+            return res.status(400).json({ message: 'Quiz data missing for this session' });
         }
         if (liveSession.currentQuestionIndex < quiz.questions.length - 1) {
             liveSession.currentQuestionIndex += 1;
@@ -319,7 +299,7 @@ app.post('/live-sessions/:sessionId/next-question', requireAuth, requireRole('in
             res.status(400).json({ message: 'This is the last question', session: liveSession });
         }
     } catch (error) {
-        console.error("Error in /next-question:", error); // Hata loglaması eklendi
+        console.error("Error in /next-question:", error);
         res.status(500).json({ message: error.message });
     }
 });
@@ -338,7 +318,6 @@ app.put('/live-sessions/:sessionId/end', requireAuth, requireRole('instructor'),
         res.status(500).json({ message: error.message });
     }
 });
-
 
 app.get('/', (req, res) => {
     res.send('Quiz App API is Running');
