@@ -14,6 +14,11 @@ const questionSchema = new Schema ({
     correctAnswer : {
         type : Number,
         required : true
+    },
+    timeLimit : {
+        type : Number,
+        default : 30, // seconds
+        required : true
     }
 })
 
@@ -27,6 +32,10 @@ const quizSchema = new Schema ({
         type : Schema.Types.ObjectId,
         ref : "Users",
         required : true
+    },
+    isLiveOnly : {
+        type : Boolean,
+        default : false // false means it can be taken anytime, true means only in live sessions
     },
     createdAt : {
         type : Date,

@@ -11,10 +11,14 @@ const app = express();
 app.use(express.json());
 app.use(passport.initialize());
 
+// Serve static files from public directory
+app.use(express.static('public'));
+
 mongoose.connect('mongodb+srv://furkanyalcin07:FGP5hnZV0kHbqqEU@quizdb.rqihj3o.mongodb.net/quizDB?retryWrites=true&w=majority&appName=QuizDB')
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('Failed to connect MongoDB : ', err));
 
+// Authentication routes
 app.post('/login', requireSignIn, (req, res) => {
     const token = generateToken(req.user);
     res.json({ token, user: { id: req.user._id, username: req.user.username, role: req.user.role } });
@@ -28,6 +32,7 @@ app.get('/instructor-dashboard', requireAuth, requireRole('instructor'), (req, r
     res.json({ message: 'Welcome to the instructor dashboard' });
 });
 
+// User management routes
 app.get('/getUsers', requireAuth, async (req, res) => {
     try {
         const allUsers = await UserModel.find({});
@@ -90,12 +95,14 @@ app.delete('/deleteUser/:userId', requireAuth, requireRole('instructor'), async 
     }
 });
 
+// Quiz management routes
 app.post('/quizzes', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
-        const { title, questions } = req.body;
+        const { title, questions, isLiveOnly } = req.body;
         const newQuiz = new QuizModel({
             title,
             questions,
+            isLiveOnly: isLiveOnly || false,
             createdBy: req.user._id 
         });
         await newQuiz.save();
@@ -114,6 +121,16 @@ app.get('/quizzes', requireAuth, async (req, res) => {
     }
 });
 
+// Get available quizzes for players (non-live only)
+app.get('/quizzes/available', requireAuth, async (req, res) => {
+    try {
+        const quizzes = await QuizModel.find({ isLiveOnly: false }).populate('createdBy', 'username');
+        res.json(quizzes);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 app.get('/quizzes/:quizId', requireAuth, async (req, res) => {
     try {
         const quiz = await QuizModel.findById(req.params.quizId).populate('createdBy', 'username');
@@ -126,13 +143,14 @@ app.get('/quizzes/:quizId', requireAuth, async (req, res) => {
 
 app.put('/quizzes/:quizId', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
-        const { title, questions } = req.body;
+        const { title, questions, isLiveOnly } = req.body;
         const quiz = await QuizModel.findById(req.params.quizId);
 
         if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
 
         quiz.title = title || quiz.title;
         quiz.questions = questions || quiz.questions;
+        quiz.isLiveOnly = isLiveOnly !== undefined ? isLiveOnly : quiz.isLiveOnly;
         
         const updatedQuiz = await quiz.save();
         res.json(updatedQuiz);
@@ -153,6 +171,95 @@ app.delete('/quizzes/:quizId', requireAuth, requireRole('instructor'), async (re
     }
 });
 
+// Standalone quiz session routes
+app.post('/quiz-sessions/:quizId/start', requireAuth, async (req, res) => {
+    try {
+        const quiz = await QuizModel.findById(req.params.quizId);
+        if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
+        if (quiz.isLiveOnly) return res.status(400).json({ message: 'This quiz is only available in live sessions' });
+
+        const sessionData = {
+            quizId: quiz._id,
+            userId: req.user._id,
+            startTime: new Date(),
+            currentQuestionIndex: 0,
+            answers: [],
+            score: 0,
+            isCompleted: false
+        };
+
+        res.json({
+            message: 'Quiz session started',
+            session: sessionData,
+            quiz: {
+                _id: quiz._id,
+                title: quiz.title,
+                totalQuestions: quiz.questions.length
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.get('/quiz-sessions/:quizId/question/:questionIndex', requireAuth, async (req, res) => {
+    try {
+        const { quizId, questionIndex } = req.params;
+        const quiz = await QuizModel.findById(quizId);
+        
+        if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
+        if (quiz.isLiveOnly) return res.status(400).json({ message: 'This quiz is only available in live sessions' });
+        
+        const qIndex = parseInt(questionIndex);
+        if (qIndex < 0 || qIndex >= quiz.questions.length) {
+            return res.status(400).json({ message: 'Invalid question index' });
+        }
+
+        const question = quiz.questions[qIndex];
+        res.json({
+            questionIndex: qIndex,
+            question: {
+                text: question.text,
+                options: question.options,
+                timeLimit: question.timeLimit
+            },
+            totalQuestions: quiz.questions.length,
+            quizTitle: quiz.title
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/quiz-sessions/:quizId/answer', requireAuth, async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const { questionIndex, answerIndex, timeSpent } = req.body;
+        
+        const quiz = await QuizModel.findById(quizId);
+        if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
+        if (quiz.isLiveOnly) return res.status(400).json({ message: 'This quiz is only available in live sessions' });
+
+        const qIndex = parseInt(questionIndex);
+        if (qIndex < 0 || qIndex >= quiz.questions.length) {
+            return res.status(400).json({ message: 'Invalid question index' });
+        }
+
+        const question = quiz.questions[qIndex];
+        const isCorrect = question.correctAnswer === parseInt(answerIndex);
+        
+        res.json({
+            isCorrect,
+            correctAnswer: question.correctAnswer,
+            explanation: isCorrect ? 'Correct!' : `Correct answer was: ${question.options[question.correctAnswer]}`,
+            nextQuestionIndex: qIndex + 1 < quiz.questions.length ? qIndex + 1 : null
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Live session routes (existing)
 app.post('/live-sessions', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
         const { quizId, sessionid } = req.body;
@@ -320,7 +427,7 @@ app.put('/live-sessions/:sessionId/end', requireAuth, requireRole('instructor'),
 });
 
 app.get('/', (req, res) => {
-    res.send('Quiz App API is Running');
+    res.sendFile(__dirname + '/public/index.html');
 });
 
 const port = process.env.PORT || 3000;
