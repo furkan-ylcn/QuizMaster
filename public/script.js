@@ -65,7 +65,6 @@ function setupEventListeners() {
     document.getElementById('start-live-session-form').addEventListener('submit', handleStartLiveSession);
     
     // Join session forms
-    document.getElementById('join-session-form').addEventListener('submit', handleJoinSession);
     document.getElementById('join-live-form').addEventListener('submit', handleJoinLiveSession);
 }
 
@@ -960,13 +959,6 @@ function displayLiveSessions(sessions) {
         `;
         container.appendChild(sessionDiv);
     });
-}
-
-async function handleJoinSession(e) {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const sessionId = formData.get('sessionId');
-    await joinLiveSession(sessionId);
 }
 
 async function handleJoinLiveSession(e) {

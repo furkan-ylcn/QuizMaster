@@ -651,6 +651,7 @@ app.get('/live-sessions/:sessionId/results', requireAuth, async (req, res) => {
                 rank: index + 1,
                 username: participant.username,
                 score: participant.score,
+                totalQuestions: participant.totalQuestions,
                 percentage: participant.percentage
             }));
         
