@@ -427,40 +427,74 @@ app.post('/live-sessions/:sessionId/answer', requireAuth, async (req, res) => {
 });
 
 app.post('/live-sessions/:sessionId/submit-answer', requireAuth, async (req, res) => {
-    if (!session.answers) {
-        session.answers = [];
-    }
     try {
         const { sessionId } = req.params;
         const { questionIndex, selectedOption } = req.body;
-        const userId = req.user.id;
+        const userId = req.user._id; // Use _id instead of id
         
-        const session = await LiveSessionModel.findOne({ sessionid: sessionId });
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate({
+                path: 'quizId',
+                select: 'title questions'
+            });
         
         if (!session) {
             return res.status(404).json({ message: 'Live session not found' });
         }
         
+        if (!session.isActive) {
+            return res.status(400).json({ message: 'Session is not active' });
+        }
+        
+        // Initialize answers array if it doesn't exist
+        if (!session.answers) {
+            session.answers = [];
+        }
+        
+        // Find the participant
+        const participant = session.participants.find(p => p.userId.equals(userId));
+        if (!participant) {
+            return res.status(403).json({ message: 'You are not a participant in this session' });
+        }
+        
         // Check if user already submitted answer for this question
-        const existingAnswer = session.answers.find(
-            answer => answer.userId.toString() === userId && answer.questionIndex === questionIndex
+        const existingAnswer = participant.answers.find(
+            answer => answer.questionIndex === questionIndex
         );
         
         if (existingAnswer) {
             return res.status(400).json({ message: 'Answer already submitted for this question' });
         }
         
-        // Add answer to session
-        session.answers.push({
-            userId,
+        // Get the question and check if answer is correct
+        const quiz = session.quizId;
+        if (!quiz || !quiz.questions || questionIndex >= quiz.questions.length) {
+            return res.status(400).json({ message: 'Invalid question index or quiz data missing' });
+        }
+        
+        const question = quiz.questions[questionIndex];
+        const isCorrect = question.correctAnswer === selectedOption;
+        
+        // Add answer to participant's answers
+        participant.answers.push({
             questionIndex,
-            selectedOption,
-            submittedAt: new Date()
+            answerIndex: selectedOption,
+            isCorrect,
+            answeredAt: new Date()
         });
+        
+        // Update participant's score if correct
+        if (isCorrect) {
+            participant.score += 1;
+        }
         
         await session.save();
         
-        res.json({ message: 'Answer submitted successfully' });
+        res.json({ 
+            message: 'Answer submitted successfully',
+            isCorrect,
+            score: participant.score
+        });
     } catch (error) {
         console.error('Error submitting answer:', error);
         res.status(500).json({ message: error.message });
@@ -567,16 +601,120 @@ app.post('/live-sessions/:sessionId/end-question', requireAuth, requireRole('ins
     }
 });
 
+app.get('/live-sessions/:sessionId/results', requireAuth, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate({
+                path: 'quizId',
+                select: 'title questions'
+            })
+            .populate({
+                path: 'participants.userId',
+                select: 'username'
+            });
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
+        }
+        
+        // Calculate detailed results for each participant
+        const participantResults = session.participants.map(participant => {
+            const userAnswers = participant.answers || [];
+            const detailedAnswers = userAnswers.map(answer => {
+                const question = session.quizId.questions[answer.questionIndex];
+                return {
+                    questionIndex: answer.questionIndex,
+                    questionText: question.text,
+                    selectedAnswer: answer.answerIndex,
+                    correctAnswer: question.correctAnswer,
+                    isCorrect: answer.isCorrect,
+                    options: question.options
+                };
+            });
+            
+            return {
+                userId: participant.userId._id,
+                username: participant.userId.username,
+                score: participant.score,
+                totalQuestions: session.quizId.questions.length,
+                percentage: Math.round((participant.score / session.quizId.questions.length) * 100),
+                answers: detailedAnswers
+            };
+        });
+        
+        // Sort by score (highest first) for leaderboard
+        const leaderboard = participantResults
+            .sort((a, b) => b.score - a.score)
+            .map((participant, index) => ({
+                rank: index + 1,
+                username: participant.username,
+                score: participant.score,
+                percentage: participant.percentage
+            }));
+        
+        // Find current user's results
+        const currentUserResults = participantResults.find(
+            p => p.userId.toString() === req.user._id.toString()
+        );
+        
+        res.json({
+            session: {
+                sessionId: session.sessionid,
+                quizTitle: session.quizId.title,
+                totalQuestions: session.quizId.questions.length,
+                isActive: session.isActive
+            },
+            leaderboard,
+            userResults: currentUserResults,
+            allQuestions: session.quizId.questions
+        });
+        
+    } catch (error) {
+        console.error('Error fetching session results:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 app.put('/live-sessions/:sessionId/end', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
         const liveSession = await LiveSessionModel.findOneAndUpdate(
             { sessionid: req.params.sessionId },
-            { isActive: false },
+            { 
+                isActive: false,
+                endedAt: new Date()
+            },
             { new: true }
-        );
+        ).populate({
+            path: 'participants.userId',
+            select: 'username'
+        }).populate({
+            path: 'quizId',
+            select: 'title questions'
+        });
+        
         if (!liveSession) return res.status(404).json({ message: 'Live session not found' });
         
-        res.json({ message: 'Live session ended', session: liveSession });
+        // Calculate leaderboard for instructor
+        const leaderboard = liveSession.participants
+            .map(participant => ({
+                username: participant.userId.username,
+                score: participant.score,
+                totalQuestions: liveSession.quizId.questions.length,
+                percentage: Math.round((participant.score / liveSession.quizId.questions.length) * 100)
+            }))
+            .sort((a, b) => b.score - a.score)
+            .map((participant, index) => ({
+                rank: index + 1,
+                ...participant
+            }));
+        
+        res.json({ 
+            message: 'Live session ended', 
+            session: liveSession,
+            leaderboard 
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

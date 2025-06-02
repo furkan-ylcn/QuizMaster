@@ -655,6 +655,7 @@ async function nextQuestion() {
     }
 }
 
+// Update the endSession function for instructors
 async function endSession() {
     if (!currentSession) {
         showToast('No active session found', 'error');
@@ -680,6 +681,9 @@ async function endSession() {
         if (response.ok) {
             showToast('Session ended successfully', 'success');
             document.getElementById('active-session').style.display = 'none';
+            
+            // Show instructor leaderboard
+            displayInstructorResults(data.leaderboard, currentSession.sessionid);
             currentSession = null;
         } else {
             showToast(data.message || 'Failed to end session', 'error');
@@ -689,6 +693,41 @@ async function endSession() {
     } finally {
         showLoading(false);
     }
+}
+
+// New function to show instructor results
+function displayInstructorResults(leaderboard, sessionId) {
+    showSection('instructor-results');
+    
+    document.getElementById('instructor-session-id').textContent = sessionId;
+    
+    const container = document.getElementById('instructor-leaderboard');
+    container.innerHTML = '';
+    
+    if (leaderboard.length === 0) {
+        container.innerHTML = '<p>No participants found</p>';
+        return;
+    }
+    
+    leaderboard.forEach(participant => {
+        const participantDiv = document.createElement('div');
+        participantDiv.className = 'leaderboard-item';
+        
+        let rankClass = '';
+        if (participant.rank === 1) rankClass = 'first-place';
+        else if (participant.rank === 2) rankClass = 'second-place';
+        else if (participant.rank === 3) rankClass = 'third-place';
+        
+        participantDiv.innerHTML = `
+            <div class="rank ${rankClass}">${participant.rank}</div>
+            <div class="participant-info">
+                <span class="username">${participant.username}</span>
+                <span class="score">${participant.score}/${participant.totalQuestions} (${participant.percentage}%)</span>
+            </div>
+        `;
+        
+        container.appendChild(participantDiv);
+    });
 }
 
 function showQuizResults() {
@@ -1115,31 +1154,194 @@ function startQuestionTimer(timeLimit) {
 }
 
 // Fix 6: Enhanced session polling with question updates
-function pollSessionUpdates(sessionId) {
-    if (sessionPollInterval) {
-        clearInterval(sessionPollInterval);
+// function pollSessionUpdates(sessionId) {
+//     if (sessionPollInterval) {
+//         clearInterval(sessionPollInterval);
+//     }
+    
+//     sessionPollInterval = setInterval(async () => {
+//         try {
+//             const response = await fetch(`/live-sessions/${sessionId}`, {
+//                 headers: {
+//                     'Authorization': `Bearer ${localStorage.getItem('token')}`
+//                 }
+//             });
+            
+//             if (response.ok) {
+//                 const sessionData = await response.json();
+                
+//                 // Check if session has ended
+//                 if (!sessionData.isActive) {
+//                     console.log('Session ended, loading results...');
+//                     showToast('Session has ended! Loading results...', 'info');
+//                     stopSessionPolling();
+//                     await showSessionResults(sessionId);
+//                     return;
+//                 }
+                
+//                 updatePlayerSessionUI(sessionData);
+//             } else if (response.status === 404) {
+//                 console.log('Session not found, loading results...');
+//                 showToast('Session has ended', 'info');
+//                 stopSessionPolling();
+//                 await showSessionResults(sessionId);
+//             }
+//         } catch (error) {
+//             console.error('Error polling session updates:', error);
+//             // Don't stop polling on network errors, just log them
+//         }
+//     }, 2000);
+// }
+
+async function showSessionResults(sessionId) {
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`/live-sessions/${sessionId}/results`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const resultsData = await response.json();
+            displaySessionResults(resultsData);
+        } else {
+            console.error('Failed to load session results');
+            showToast('Failed to load session results', 'error');
+            showSection('dashboard');
+        }
+    } catch (error) {
+        console.error('Error loading session results:', error);
+        showToast('Network error loading results', 'error');
+        showSection('dashboard');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// New function to display session results
+function displaySessionResults(resultsData) {
+    showSection('session-results');
+    
+    const { session, leaderboard, userResults, allQuestions } = resultsData;
+    
+    // Update session info
+    document.getElementById('results-session-id').textContent = session.sessionId;
+    document.getElementById('results-quiz-title').textContent = session.quizTitle;
+    
+    // Show user's performance
+    if (userResults) {
+        document.getElementById('user-final-score').textContent = userResults.score;
+        document.getElementById('user-total-questions').textContent = userResults.totalQuestions;
+        document.getElementById('user-percentage').textContent = userResults.percentage + '%';
+        
+        // Show detailed answers
+        displayDetailedAnswers(userResults.answers);
     }
     
-    sessionPollInterval = setInterval(async () => {
-        try {
-            const response = await fetch(`/live-sessions/${sessionId}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            
-            if (response.ok) {
-                const sessionData = await response.json();
-                updatePlayerSessionUI(sessionData);
-            } else if (response.status === 404) {
-                // Session ended
-                showToast('Session has ended', 'info');
-                leaveLiveSession();
-            }
-        } catch (error) {
-            console.error('Error polling session updates:', error);
-        }
-    }, 2000);
+    // Show leaderboard
+    displayLeaderboard(leaderboard);
+    
+    // Reset session state
+    currentSession = null;
+    currentDisplayedQuestionId = null;
+    isQuestionActive = false;
+}
+
+// New function to display detailed answers
+function displayDetailedAnswers(answers) {
+    const container = document.getElementById('detailed-answers');
+    container.innerHTML = '';
+    
+    answers.forEach((answer, index) => {
+        const answerDiv = document.createElement('div');
+        answerDiv.className = `answer-review ${answer.isCorrect ? 'correct' : 'incorrect'}`;
+        
+        answerDiv.innerHTML = `
+            <div class="question-review-header">
+                <h4>Question ${answer.questionIndex + 1}</h4>
+                <span class="result-badge ${answer.isCorrect ? 'correct' : 'incorrect'}">
+                    ${answer.isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                </span>
+            </div>
+            <p class="question-text">${answer.questionText}</p>
+            <div class="options-review">
+                ${answer.options.map((option, optionIndex) => {
+                    let className = 'option-review';
+                    if (optionIndex === answer.correctAnswer) {
+                        className += ' correct-answer';
+                    }
+                    if (optionIndex === answer.selectedAnswer && !answer.isCorrect) {
+                        className += ' wrong-answer';
+                    }
+                    if (optionIndex === answer.selectedAnswer) {
+                        className += ' selected';
+                    }
+                    
+                    return `
+                        <div class="${className}">
+                            <span class="option-letter">${String.fromCharCode(65 + optionIndex)}</span>
+                            <span class="option-text">${option}</span>
+                            ${optionIndex === answer.selectedAnswer ? '<span class="selection-indicator">Your Answer</span>' : ''}
+                            ${optionIndex === answer.correctAnswer ? '<span class="correct-indicator">Correct Answer</span>' : ''}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+        
+        container.appendChild(answerDiv);
+    });
+}
+
+// New function to display leaderboard
+function displayLeaderboard(leaderboard) {
+    const container = document.getElementById('session-leaderboard');
+    container.innerHTML = '';
+    
+    if (leaderboard.length === 0) {
+        container.innerHTML = '<p>No participants found</p>';
+        return;
+    }
+    
+    leaderboard.forEach(participant => {
+        const participantDiv = document.createElement('div');
+        participantDiv.className = 'leaderboard-item';
+        
+        let rankClass = '';
+        if (participant.rank === 1) rankClass = 'first-place';
+        else if (participant.rank === 2) rankClass = 'second-place';
+        else if (participant.rank === 3) rankClass = 'third-place';
+        
+        participantDiv.innerHTML = `
+            <div class="rank ${rankClass}">${participant.rank}</div>
+            <div class="participant-info">
+                <span class="username">${participant.username}</span>
+                <span class="score">${participant.score}/${participant.totalQuestions} (${participant.percentage}%)</span>
+            </div>
+        `;
+        
+        container.appendChild(participantDiv);
+    });
+}
+
+function showResultsTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active');
+    });
+    
+    // Show selected tab content
+    document.getElementById(tabName + '-tab').classList.add('active');
+    
+    // Add active class to clicked button
+    event.target.classList.add('active');
 }
 
 async function startCurrentQuestion() {
@@ -1265,20 +1467,21 @@ async function submitLiveAnswer(optionIndex) {
         
         if (response.ok) {
             document.getElementById('answer-status').style.display = 'block';
-            showToast('Answer submitted!', 'success');
+            showToast(`Answer submitted! ${data.isCorrect ? 'Correct!' : 'Incorrect'}`, data.isCorrect ? 'success' : 'error');
         } else {
             showToast(data.message || 'Failed to submit answer', 'error');
+            // Re-enable buttons if submission failed
             answerButtons.forEach(btn => btn.disabled = false);
         }
     } catch (error) {
         console.error('Error submitting answer:', error);
         showToast('Network error. Please try again.', 'error');
+        // Re-enable buttons if submission failed
         answerButtons.forEach(btn => btn.disabled = false);
     }
 }
 
 function pollSessionUpdates(sessionId) {
-    // Clear any existing polling
     if (sessionPollInterval) {
         clearInterval(sessionPollInterval);
     }
@@ -1293,12 +1496,28 @@ function pollSessionUpdates(sessionId) {
             
             if (response.ok) {
                 const sessionData = await response.json();
+                
+                // Check if session has ended
+                if (!sessionData.isActive) {
+                    console.log('Session ended, loading results...');
+                    showToast('Session has ended! Loading results...', 'info');
+                    stopSessionPolling();
+                    await showSessionResults(sessionId);
+                    return;
+                }
+                
                 updatePlayerSessionUI(sessionData);
+            } else if (response.status === 404) {
+                console.log('Session not found, loading results...');
+                showToast('Session has ended', 'info');
+                stopSessionPolling();
+                await showSessionResults(sessionId);
             }
         } catch (error) {
             console.error('Error polling session updates:', error);
+            // Don't stop polling on network errors, just log them
         }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 }
 
 function stopSessionPolling() {

@@ -400,6 +400,81 @@
         </div>
     </section>
 
+    <!-- Session Results Section (for players) -->
+    <div id="session-results-section" class="section">
+        <div class="container">
+            <div class="results-header">
+                <h2>🎉 Session Results</h2>
+                <div class="session-info">
+                    <p><strong>Session ID:</strong> <span id="results-session-id"></span></p>
+                    <p><strong>Quiz:</strong> <span id="results-quiz-title"></span></p>
+                </div>
+            </div>
+            
+            <div class="user-performance">
+                <h3>Your Performance</h3>
+                <div class="score-display">
+                    <div class="score-item">
+                        <span class="score-value" id="user-final-score">0</span>
+                        <span class="score-label">Correct</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-value" id="user-total-questions">0</span>
+                        <span class="score-label">Total</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-value" id="user-percentage">0%</span>
+                        <span class="score-label">Score</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-tabs">
+                <button class="tab-button active" onclick="showResultsTab('answers')">Your Answers</button>
+                <button class="tab-button" onclick="showResultsTab('leaderboard')">Leaderboard</button>
+            </div>
+            
+            <div id="answers-tab" class="tab-content active">
+                <h3>Detailed Review</h3>
+                <div id="detailed-answers"></div>
+            </div>
+            
+            <div id="leaderboard-tab" class="tab-content">
+                <h3>Final Leaderboard</h3>
+                <div id="session-leaderboard"></div>
+            </div>
+            
+            <div class="results-actions">
+                <button class="btn btn-primary" onclick="showSection('dashboard')">
+                    <i class="fas fa-home"></i> Back to Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instructor Results Section -->
+    <div id="instructor-results-section" class="section">
+        <div class="container">
+            <div class="results-header">
+                <h2>📊 Session Complete</h2>
+                <div class="session-info">
+                    <p><strong>Session ID:</strong> <span id="instructor-session-id"></span></p>
+                </div>
+            </div>
+            
+            <div class="instructor-leaderboard-container">
+                <h3>Final Leaderboard</h3>
+                <div id="instructor-leaderboard"></div>
+            </div>
+            
+            <div class="results-actions">
+                <button class="btn btn-primary" onclick="showSection('dashboard')">
+                    <i class="fas fa-home"></i> Back to Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay">
         <div class="spinner"></div>
