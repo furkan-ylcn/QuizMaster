@@ -7,6 +7,10 @@ let timeRemaining = 0;
 let selectedAnswer = null;
 let quizScore = 0;
 let totalQuestions = 0;
+let sessionPollInterval = null;
+let questionTimerInterval = null;
+let currentDisplayedQuestionId = null;
+let isQuestionActive = false;
 
 // API Base URL
 const API_BASE = '';
@@ -611,6 +615,82 @@ async function submitAnswer() {
     }
 }
 
+async function nextQuestion() {
+    if (!currentSession) {
+        showToast('No active session found', 'error');
+        return;
+    }
+    
+    if (currentSession.questionStarted) {
+        showToast('Please end current question first', 'warning');
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`/live-sessions/${currentSession.sessionid}/next-question`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showToast('Moved to next question', 'success');
+            currentSession.currentQuestionIndex = data.currentQuestionIndex;
+            currentSession.questionStarted = false;
+            document.getElementById('current-question-num').textContent = (data.currentQuestionIndex + 1);
+            updateInstructorControls(currentSession);
+        } else {
+            showToast(data.message || 'Failed to move to next question', 'error');
+        }
+    } catch (error) {
+        console.error('Error moving to next question:', error);
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function endSession() {
+    if (!currentSession) {
+        showToast('No active session found', 'error');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to end this session?')) {
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`/live-sessions/${currentSession.sessionid}/end`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showToast('Session ended successfully', 'success');
+            document.getElementById('active-session').style.display = 'none';
+            currentSession = null;
+        } else {
+            showToast(data.message || 'Failed to end session', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
 function showQuizResults() {
     showSection('results');
     
@@ -654,14 +734,26 @@ async function loadQuizzesForLiveSession() {
             const select = document.getElementById('live-quiz-select');
             select.innerHTML = '<option value="">Choose a quiz...</option>';
             
-            quizzes.forEach(quiz => {
+            // Filter to show only quizzes created by current instructor
+            const myQuizzes = quizzes.filter(quiz => quiz.createdBy._id === currentUser.id);
+            
+            myQuizzes.forEach(quiz => {
                 const option = document.createElement('option');
                 option.value = quiz._id;
-                option.textContent = quiz.title;
+                option.textContent = `${quiz.title} (${quiz.questions.length} questions)`;
                 select.appendChild(option);
             });
+            
+            if (myQuizzes.length === 0) {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No quizzes available - Create a quiz first";
+                option.disabled = true;
+                select.appendChild(option);
+            }
         }
     } catch (error) {
+        console.error('Error loading quizzes:', error);
         showToast('Failed to load quizzes', 'error');
     }
 }
@@ -671,9 +763,20 @@ async function handleStartLiveSession(e) {
     showLoading(true);
     
     const formData = new FormData(e.target);
+    const quizId = formData.get('quizId'); // This should match the select name
+    const sessionId = formData.get('sessionId');
+    
+    console.log('Starting live session with quizId:', quizId); // Debug log
+    
+    if (!quizId) {
+        showToast('Please select a quiz first', 'error');
+        showLoading(false);
+        return;
+    }
+    
     const sessionData = {
-        quizId: formData.get('quizId'),
-        sessionid: formData.get('sessionId') || undefined
+        quizId: quizId,
+        sessionid: sessionId || undefined
     };
     
     try {
@@ -689,12 +792,15 @@ async function handleStartLiveSession(e) {
         const data = await response.json();
         
         if (response.ok) {
-            showToast('Live session started!', 'success');
+            showToast('Live session started successfully!', 'success');
             displayActiveSession(data);
+            document.getElementById('start-live-session-form').reset();
         } else {
+            console.error('Server error:', data);
             showToast(data.message || 'Failed to start live session', 'error');
         }
     } catch (error) {
+        console.error('Network error:', error);
         showToast('Network error. Please try again.', 'error');
     } finally {
         showLoading(false);
@@ -704,10 +810,61 @@ async function handleStartLiveSession(e) {
 function displayActiveSession(session) {
     document.getElementById('active-session').style.display = 'block';
     document.getElementById('active-session-id').textContent = session.sessionid;
-    // Additional session display logic would go here
+    
+    if (session.quizId && session.quizId.title) {
+        document.getElementById('active-quiz-title').textContent = session.quizId.title;
+    }
+    
+    document.getElementById('current-question-num').textContent = (session.currentQuestionIndex + 1);
+    document.getElementById('participants-count').textContent = session.participants.length;
+    
+    // Store current session
+    currentSession = session;
+    
+    // Update control buttons based on question state
+    updateInstructorControls(session);
+}
+
+function updateInstructorControls(session) {
+    const controlsContainer = document.querySelector('.session-controls');
+    if (!controlsContainer) return;
+    
+    const questionStarted = session.questionStarted || false;
+    const totalQuestions = session.quizId?.questions?.length || 0;
+    const currentIndex = session.currentQuestionIndex || 0;
+    const hasMoreQuestions = currentIndex < totalQuestions - 1;
+    
+    controlsContainer.innerHTML = `
+        ${!questionStarted ? `
+            <button class="btn btn-success" onclick="startCurrentQuestion()">
+                <i class="fas fa-play"></i> Start Question ${currentIndex + 1}
+            </button>
+        ` : `
+            <button class="btn btn-warning" onclick="endCurrentQuestion()">
+                <i class="fas fa-pause"></i> End Current Question
+            </button>
+        `}
+        
+        ${hasMoreQuestions ? `
+            <button class="btn btn-primary" onclick="nextQuestion()" ${questionStarted ? 'disabled' : ''}>
+                <i class="fas fa-forward"></i> Next Question
+            </button>
+        ` : ''}
+        
+        <button class="btn btn-danger" onclick="endSession()">
+            <i class="fas fa-stop"></i> End Session
+        </button>
+        
+        <div class="session-status">
+            <p><strong>Status:</strong> ${questionStarted ? 'Question Active' : 'Waiting to Start'}</p>
+            <p><strong>Progress:</strong> ${currentIndex + 1} / ${totalQuestions}</p>
+        </div>
+    `;
 }
 
 async function loadAvailableLiveSessions() {
+    showLoading(true);
+    
     try {
         const response = await fetch('/live-sessions', {
             headers: {
@@ -716,31 +873,48 @@ async function loadAvailableLiveSessions() {
         });
         
         const sessions = await response.json();
+        console.log('Loaded live sessions:', sessions); // Debug log
         
         if (response.ok) {
             displayLiveSessions(sessions);
+        } else {
+            console.error('Failed to load sessions:', sessions);
+            showToast('Failed to load live sessions', 'error');
         }
     } catch (error) {
-        showToast('Failed to load live sessions', 'error');
+        console.error('Network error loading sessions:', error);
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        showLoading(false);
     }
 }
 
 function displayLiveSessions(sessions) {
-    const container = document.getElementById('live-sessions-list');
+    const container = document.getElementById('live-sessions-grid');
+    if (!container) {
+        console.error('live-sessions-grid container not found');
+        return;
+    }
+    
     container.innerHTML = '';
     
+    console.log('Displaying sessions:', sessions.length); // Debug log
+    
     if (sessions.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: #666;">No active live sessions</p>';
+        container.innerHTML = '<p style="text-align: center; color: white; font-size: 1.2rem;">No active live sessions available</p>';
         return;
     }
     
     sessions.forEach(session => {
+        console.log('Session data:', session); // Debug log
+        
         const sessionDiv = document.createElement('div');
         sessionDiv.className = 'quiz-card';
         sessionDiv.innerHTML = `
-            <h3>${session.quizId.title}</h3>
-            <p><i class="fas fa-id-card"></i> Session ID: ${session.sessionid}</p>
-            <p><i class="fas fa-users"></i> Participants: ${session.participants.length}</p>
+            <h3>${session.quizId ? session.quizId.title : 'Unknown Quiz'}</h3>
+            <p><i class="fas fa-id-card"></i> Session ID: <strong>${session.sessionid}</strong></p>
+            <p><i class="fas fa-users"></i> Participants: ${session.participants ? session.participants.length : 0}</p>
+            <p><i class="fas fa-question-circle"></i> Current Question: ${(session.currentQuestionIndex || 0) + 1}</p>
             <button class="btn btn-primary" onclick="joinLiveSession('${session.sessionid}')">
                 <i class="fas fa-sign-in-alt"></i> Join Session
             </button>
@@ -760,14 +934,224 @@ async function handleJoinLiveSession(e) {
     e.preventDefault();
     const formData = new FormData(e.target);
     const sessionId = formData.get('sessionId');
-    await joinLiveSession(sessionId);
+    
+    if (!sessionId || sessionId.trim() === '') {
+        showToast('Please enter a Session ID', 'error');
+        return;
+    }
+    
+    await joinLiveSession(sessionId.trim());
 }
 
 async function joinLiveSession(sessionId) {
+    if (!sessionId) {
+        showToast('Session ID is required', 'error');
+        return;
+    }
+    
+    console.log('Attempting to join session:', sessionId); // Debug log
     showLoading(true);
     
     try {
         const response = await fetch(`/live-sessions/${sessionId}/join`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        console.log('Join session response:', data); // Debug log
+        
+        if (response.ok) {
+            showToast('Successfully joined live session!', 'success');
+            currentSession = data;
+            
+            // Show live session interface for player
+            showLiveSessionPlayer(data);
+        } else {
+            console.error('Join session error:', data);
+            showToast(data.message || 'Failed to join session', 'error');
+        }
+    } catch (error) {
+        console.error('Network error joining session:', error);
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function showLiveSessionPlayer(sessionData) {
+    console.log('Showing live session player with data:', sessionData);
+    
+    showSection('live-session-player');
+    
+    // Update session info
+    const sessionIdElement = document.getElementById('player-session-id');
+    const quizTitleElement = document.getElementById('player-quiz-title');
+    const currentQuestionElement = document.getElementById('player-current-question');
+    
+    if (sessionIdElement) {
+        sessionIdElement.textContent = sessionData.sessionid || 'Unknown';
+    }
+    
+    if (quizTitleElement) {
+        quizTitleElement.textContent = sessionData.quizId?.title || 'Loading...';
+    }
+    
+    if (currentQuestionElement) {
+        currentQuestionElement.textContent = (sessionData.currentQuestionIndex || 0) + 1;
+    }
+    
+    currentSession = sessionData;
+    
+    // Only show question if it's marked as started
+    if (sessionData.questionStarted && sessionData.currentQuestion) {
+        const questionId = sessionData.currentQuestion._id;
+        if (currentDisplayedQuestionId !== questionId) {
+            displayLiveQuestion(sessionData.currentQuestion, sessionData.currentQuestionIndex);
+            currentDisplayedQuestionId = questionId;
+            isQuestionActive = true;
+        }
+    } else {
+        showWaitingScreen();
+        isQuestionActive = false;
+        currentDisplayedQuestionId = null;
+    }
+    
+    pollSessionUpdates(sessionData.sessionid);
+}
+
+function showWaitingScreen() {
+    const waitingArea = document.getElementById('waiting-for-question');
+    const questionArea = document.getElementById('live-question-display');
+    
+    if (waitingArea) waitingArea.style.display = 'block';
+    if (questionArea) questionArea.style.display = 'none';
+    
+    // Clear timer when showing waiting screen
+    if (questionTimerInterval) {
+        clearInterval(questionTimerInterval);
+        questionTimerInterval = null;
+    }
+}
+
+function displayLiveQuestion(question, questionIndex) {
+    console.log('Displaying live question:', question);
+    
+    const waitingArea = document.getElementById('waiting-for-question');
+    const questionArea = document.getElementById('live-question-display');
+    
+    if (waitingArea) waitingArea.style.display = 'none';
+    if (questionArea) {
+        questionArea.style.display = 'block';
+        
+        questionArea.innerHTML = `
+            <div class="live-question-container">
+                <div class="question-header">
+                    <h3>Question ${questionIndex + 1}</h3>
+                    ${question.timeLimit ? `<div class="timer" id="question-timer">${question.timeLimit}s</div>` : ''}
+                </div>
+                
+                <div class="question-text">
+                    <h2>${question.text}</h2>
+                </div>
+                
+                <div class="answer-options">
+                    ${question.options.map((option, index) => `
+                        <button class="answer-option" onclick="submitLiveAnswer(${index})" data-option="${index}">
+                            <span class="option-letter">${String.fromCharCode(65 + index)}</span>
+                            <span class="option-text">${option}</span>
+                        </button>
+                    `).join('')}
+                </div>
+                
+                <div class="answer-status" id="answer-status" style="display: none;">
+                    <p>Answer submitted! Waiting for next question...</p>
+                </div>
+            </div>
+        `;
+        
+        // Start timer only once
+        if (question.timeLimit) {
+            startQuestionTimer(question.timeLimit);
+        }
+    }
+}
+
+function startQuestionTimer(timeLimit) {
+    // Clear any existing timer first
+    if (questionTimerInterval) {
+        clearInterval(questionTimerInterval);
+    }
+    
+    let timeLeft = timeLimit;
+    const timerElement = document.getElementById('question-timer');
+    
+    if (!timerElement) return;
+    
+    questionTimerInterval = setInterval(() => {
+        timeLeft--;
+        if (timerElement) {
+            timerElement.textContent = `${timeLeft}s`;
+            
+            if (timeLeft <= 5) {
+                timerElement.style.color = '#ff4757';
+                timerElement.style.animation = 'pulse 1s infinite';
+            }
+        }
+        
+        if (timeLeft <= 0) {
+            clearInterval(questionTimerInterval);
+            questionTimerInterval = null;
+            
+            // Auto-disable answers when time is up
+            const answerButtons = document.querySelectorAll('.answer-option');
+            answerButtons.forEach(btn => btn.disabled = true);
+            showToast('Time is up!', 'warning');
+        }
+    }, 1000);
+}
+
+// Fix 6: Enhanced session polling with question updates
+function pollSessionUpdates(sessionId) {
+    if (sessionPollInterval) {
+        clearInterval(sessionPollInterval);
+    }
+    
+    sessionPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/live-sessions/${sessionId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            
+            if (response.ok) {
+                const sessionData = await response.json();
+                updatePlayerSessionUI(sessionData);
+            } else if (response.status === 404) {
+                // Session ended
+                showToast('Session has ended', 'info');
+                leaveLiveSession();
+            }
+        } catch (error) {
+            console.error('Error polling session updates:', error);
+        }
+    }, 2000);
+}
+
+async function startCurrentQuestion() {
+    if (!currentSession) {
+        showToast('No active session found', 'error');
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`/live-sessions/${currentSession.sessionid}/start-question`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -777,16 +1161,190 @@ async function joinLiveSession(sessionId) {
         const data = await response.json();
         
         if (response.ok) {
-            showToast('Joined live session!', 'success');
-            // Handle live session UI
+            showToast('Question started!', 'success');
+            currentSession = data.session;
+            updateInstructorControls(currentSession);
         } else {
-            showToast(data.message || 'Failed to join session', 'error');
+            showToast(data.message || 'Failed to start question', 'error');
         }
     } catch (error) {
+        console.error('Error starting question:', error);
         showToast('Network error. Please try again.', 'error');
     } finally {
         showLoading(false);
     }
+}
+
+async function endCurrentQuestion() {
+    if (!currentSession) {
+        showToast('No active session found', 'error');
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`/live-sessions/${currentSession.sessionid}/end-question`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showToast('Question ended', 'success');
+            currentSession.questionStarted = false;
+            updateInstructorControls(currentSession);
+        } else {
+            showToast(data.message || 'Failed to end question', 'error');
+        }
+    } catch (error) {
+        console.error('Error ending question:', error);
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function leaveLiveSession() {
+    stopSessionPolling();
+    
+    // Clear all timers and state
+    if (questionTimerInterval) {
+        clearInterval(questionTimerInterval);
+        questionTimerInterval = null;
+    }
+    
+    // Reset state variables
+    currentDisplayedQuestionId = null;
+    isQuestionActive = false;
+    currentSession = null;
+    
+    showSection('dashboard');
+    showToast('Left live session', 'success');
+}
+
+function stopSessionPolling() {
+    if (sessionPollInterval) {
+        clearInterval(sessionPollInterval);
+        sessionPollInterval = null;
+    }
+}
+
+async function submitLiveAnswer(optionIndex) {
+    if (!currentSession) {
+        showToast('No active session found', 'error');
+        return;
+    }
+    
+    // Disable all answer buttons
+    const answerButtons = document.querySelectorAll('.answer-option');
+    answerButtons.forEach(btn => {
+        btn.disabled = true;
+        if (btn.dataset.option == optionIndex) {
+            btn.classList.add('selected');
+        }
+    });
+    
+    try {
+        const response = await fetch(`/live-sessions/${currentSession.sessionid}/submit-answer`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                questionIndex: currentSession.currentQuestionIndex,
+                selectedOption: optionIndex
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('answer-status').style.display = 'block';
+            showToast('Answer submitted!', 'success');
+        } else {
+            showToast(data.message || 'Failed to submit answer', 'error');
+            answerButtons.forEach(btn => btn.disabled = false);
+        }
+    } catch (error) {
+        console.error('Error submitting answer:', error);
+        showToast('Network error. Please try again.', 'error');
+        answerButtons.forEach(btn => btn.disabled = false);
+    }
+}
+
+function pollSessionUpdates(sessionId) {
+    // Clear any existing polling
+    if (sessionPollInterval) {
+        clearInterval(sessionPollInterval);
+    }
+    
+    sessionPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/live-sessions/${sessionId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            
+            if (response.ok) {
+                const sessionData = await response.json();
+                updatePlayerSessionUI(sessionData);
+            }
+        } catch (error) {
+            console.error('Error polling session updates:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function stopSessionPolling() {
+    if (sessionPollInterval) {
+        clearInterval(sessionPollInterval);
+        sessionPollInterval = null;
+    }
+}
+
+function updatePlayerSessionUI(sessionData) {
+    console.log('Updating player UI with session data:', sessionData);
+    
+    // Update question number
+    const currentQuestionElement = document.getElementById('player-current-question');
+    if (currentQuestionElement) {
+        currentQuestionElement.textContent = (sessionData.currentQuestionIndex || 0) + 1;
+    }
+    
+    // Update quiz title if needed
+    const quizTitleElement = document.getElementById('player-quiz-title');
+    if (quizTitleElement && sessionData.quizId?.title) {
+        quizTitleElement.textContent = sessionData.quizId.title;
+    }
+    
+    // Check if we should show/hide question based on questionStarted flag
+    if (sessionData.questionStarted && sessionData.currentQuestion) {
+        const questionId = sessionData.currentQuestion._id;
+        
+        // Only display if it's a new question or question wasn't active before
+        if (currentDisplayedQuestionId !== questionId || !isQuestionActive) {
+            console.log('Displaying new question:', questionId);
+            displayLiveQuestion(sessionData.currentQuestion, sessionData.currentQuestionIndex);
+            currentDisplayedQuestionId = questionId;
+            isQuestionActive = true;
+        }
+    } else {
+        // Question not started or no current question - show waiting screen
+        if (isQuestionActive) {
+            console.log('Question ended, showing waiting screen');
+            showWaitingScreen();
+            isQuestionActive = false;
+            currentDisplayedQuestionId = null;
+        }
+    }
+    
+    currentSession = sessionData;
 }
 
 // Utility functions

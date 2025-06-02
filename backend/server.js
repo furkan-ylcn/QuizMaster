@@ -263,16 +263,33 @@ app.post('/quiz-sessions/:quizId/answer', requireAuth, async (req, res) => {
 app.post('/live-sessions', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
         const { quizId, sessionid } = req.body;
+        
+        console.log('Received quizId:', quizId); // Debug log
+        
+        if (!quizId) {
+            return res.status(400).json({ message: 'Quiz ID is required' });
+        }
+        
         const quiz = await QuizModel.findById(quizId);
-        if (!quiz) return res.status(404).json({ message: 'Quiz not found for this session' });
+        console.log('Found quiz:', quiz ? quiz.title : 'Not found'); // Debug log
+        
+        if (!quiz) {
+            return res.status(404).json({ message: 'Quiz not found for this session' });
+        }
 
         const newLiveSession = new LiveSessionModel({
             sessionid: sessionid || new mongoose.Types.ObjectId().toString(),
             quizId,
         });
+        
         await newLiveSession.save();
-        res.status(201).json(newLiveSession);
+        
+        // Populate the quiz data in response
+        const populatedSession = await LiveSessionModel.findById(newLiveSession._id).populate('quizId', 'title questions');
+        
+        res.status(201).json(populatedSession);
     } catch (error) {
+        console.error('Live session creation error:', error); // Debug log
         res.status(400).json({ message: error.message });
     }
 });
@@ -288,10 +305,34 @@ app.get('/live-sessions', requireAuth, async (req, res) => {
 
 app.get('/live-sessions/:sessionId', requireAuth, async (req, res) => {
     try {
-        const liveSession = await LiveSessionModel.findOne({ sessionid: req.params.sessionId }).populate('quizId');
-        if (!liveSession) return res.status(404).json({ message: 'Live session not found' });
-        res.json(liveSession);
+        const { sessionId } = req.params;
+        
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate({
+                path: 'quizId',
+                select: 'title questions'
+            });
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
+        }
+        
+        let responseData = session.toObject();
+        
+        // Only include currentQuestion if questionStarted is true
+        if (session.questionStarted && session.quizId && session.quizId.questions && session.quizId.questions.length > 0) {
+            const currentQuestionIndex = session.currentQuestionIndex || 0;
+            if (currentQuestionIndex < session.quizId.questions.length) {
+                responseData.currentQuestion = session.quizId.questions[currentQuestionIndex];
+            }
+        } else {
+            // Explicitly set currentQuestion to null if question not started
+            responseData.currentQuestion = null;
+        }
+        
+        res.json(responseData);
     } catch (error) {
+        console.error('Error fetching live session:', error);
         res.status(500).json({ message: error.message });
     }
 });
@@ -385,28 +426,143 @@ app.post('/live-sessions/:sessionId/answer', requireAuth, async (req, res) => {
     }
 });
 
+app.post('/live-sessions/:sessionId/submit-answer', requireAuth, async (req, res) => {
+    if (!session.answers) {
+        session.answers = [];
+    }
+    try {
+        const { sessionId } = req.params;
+        const { questionIndex, selectedOption } = req.body;
+        const userId = req.user.id;
+        
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId });
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
+        }
+        
+        // Check if user already submitted answer for this question
+        const existingAnswer = session.answers.find(
+            answer => answer.userId.toString() === userId && answer.questionIndex === questionIndex
+        );
+        
+        if (existingAnswer) {
+            return res.status(400).json({ message: 'Answer already submitted for this question' });
+        }
+        
+        // Add answer to session
+        session.answers.push({
+            userId,
+            questionIndex,
+            selectedOption,
+            submittedAt: new Date()
+        });
+        
+        await session.save();
+        
+        res.json({ message: 'Answer submitted successfully' });
+    } catch (error) {
+        console.error('Error submitting answer:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/live-sessions/:sessionId/start-question', requireAuth, requireRole('instructor'), async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate({
+                path: 'quizId',
+                select: 'title questions'
+            });
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
+        }
+        
+        // Mark question as started
+        session.questionStarted = true;
+        session.questionStartTime = new Date();
+        await session.save();
+        
+        // Return updated session with current question
+        const updatedSession = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate({
+                path: 'quizId',
+                select: 'title questions'
+            });
+        
+        let responseData = updatedSession.toObject();
+        
+        // Add current question to response
+        if (updatedSession.quizId && updatedSession.quizId.questions && updatedSession.quizId.questions.length > 0) {
+            const currentQuestionIndex = updatedSession.currentQuestionIndex || 0;
+            if (currentQuestionIndex < updatedSession.quizId.questions.length) {
+                responseData.currentQuestion = updatedSession.quizId.questions[currentQuestionIndex];
+            }
+        }
+        
+        res.json({ 
+            message: 'Question started',
+            session: responseData
+        });
+    } catch (error) {
+        console.error('Error starting question:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 app.post('/live-sessions/:sessionId/next-question', requireAuth, requireRole('instructor'), async (req, res) => {
     try {
-        const liveSession = await LiveSessionModel.findOne({ sessionid: req.params.sessionId }).populate({
-            path: 'quizId',
-            model: QuizModel
-        });
-        if (!liveSession) return res.status(404).json({ message: 'Live session not found' });
-        if (!liveSession.isActive) return res.status(400).json({ message: 'Session is not active' });
+        const { sessionId } = req.params;
         
-        const quiz = liveSession.quizId;
-        if (!quiz || !quiz.questions) {
-            return res.status(400).json({ message: 'Quiz data missing for this session' });
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId })
+            .populate('quizId', 'questions');
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
         }
-        if (liveSession.currentQuestionIndex < quiz.questions.length - 1) {
-            liveSession.currentQuestionIndex += 1;
-            await liveSession.save();
-            res.json({ message: 'Moved to next question', currentQuestionIndex: liveSession.currentQuestionIndex, session: liveSession });
+        
+        const totalQuestions = session.quizId.questions.length;
+        const currentIndex = session.currentQuestionIndex || 0;
+        
+        if (currentIndex < totalQuestions - 1) {
+            session.currentQuestionIndex = currentIndex + 1;
+            session.questionStarted = false; // Reset question started state
+            session.questionStartTime = null;
+            await session.save();
+            
+            res.json({ 
+                message: 'Moved to next question. Use start-question to begin.',
+                currentQuestionIndex: session.currentQuestionIndex
+            });
         } else {
-            res.status(400).json({ message: 'This is the last question', session: liveSession });
+            res.status(400).json({ message: 'No more questions available' });
         }
     } catch (error) {
-        console.error("Error in /next-question:", error);
+        console.error('Error moving to next question:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/live-sessions/:sessionId/end-question', requireAuth, requireRole('instructor'), async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        const session = await LiveSessionModel.findOne({ sessionid: sessionId });
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Live session not found' });
+        }
+        
+        session.questionStarted = false;
+        session.questionStartTime = null;
+        await session.save();
+        
+        res.json({ message: 'Question ended' });
+    } catch (error) {
+        console.error('Error ending question:', error);
         res.status(500).json({ message: error.message });
     }
 });

@@ -22,6 +22,14 @@ const liveSessionSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
     currentQuestionIndex: { type: Number, default: 0 },
     participants: [participantSchema],
+    questionStarted: {
+    type: Boolean,
+    default: false
+    },
+    questionStartTime: {
+        type: Date,
+        default: null
+    },
     createdAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null }
 });

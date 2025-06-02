@@ -237,13 +237,13 @@
                     <form id="start-live-session-form">
                         <div class="form-group">
                             <label for="live-quiz-select">Select Quiz</label>
-                            <select id="live-quiz-select" required>
+                            <select id="live-quiz-select" name="quizId" required>
                                 <option value="">Choose a quiz...</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label for="session-id">Session ID (optional)</label>
-                            <input type="text" id="session-id" placeholder="Leave empty for auto-generated">
+                            <input type="text" id="session-id" name="sessionId" placeholder="Leave empty for auto-generated">
                         </div>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-play"></i> Start Live Session
@@ -254,12 +254,15 @@
                 <div id="active-session" style="display: none;">
                     <h3>Active Session</h3>
                     <div class="session-info">
-                        <p>Session ID: <span id="active-session-id"></span></p>
-                        <p>Quiz: <span id="active-quiz-title"></span></p>
-                        <p>Current Question: <span id="current-question-num">1</span></p>
-                        <p>Participants: <span id="participants-count">0</span></p>
+                        <p><strong>Session ID:</strong> <span id="active-session-id"></span></p>
+                        <p><strong>Quiz:</strong> <span id="active-quiz-title"></span></p>
+                        <p><strong>Current Question:</strong> <span id="current-question-num">1</span></p>
+                        <p><strong>Participants:</strong> <span id="participants-count">0</span></p>
                     </div>
                     <div class="session-controls">
+                        <button class="btn btn-success" onclick="startCurrentQuestion()">
+                            <i class="fas fa-play"></i> Start Current Question
+                        </button>
                         <button class="btn btn-primary" onclick="nextQuestion()">
                             <i class="fas fa-forward"></i> Next Question
                         </button>
@@ -291,6 +294,49 @@
                         <!-- Available sessions will be loaded here -->
                     </div>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Live Session Player Section -->
+    <section id="live-session-player-section" class="section">
+        <div class="container">
+            <div class="live-session-header">
+                <h2><i class="fas fa-broadcast-tower"></i> Live Session</h2>
+                <div class="session-info-bar">
+                    <div class="session-detail">
+                        <span class="label">Session ID:</span>
+                        <span id="player-session-id" class="value">-</span>
+                    </div>
+                    <div class="session-detail">
+                        <span class="label">Quiz:</span>
+                        <span id="player-quiz-title" class="value">-</span>
+                    </div>
+                    <div class="session-detail">
+                        <span class="label">Question:</span>
+                        <span id="player-current-question" class="value">1</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="live-session-content">
+                <div class="waiting-area" id="waiting-for-question">
+                    <div class="waiting-message">
+                        <i class="fas fa-clock fa-3x"></i>
+                        <h3>Waiting for next question...</h3>
+                        <p>The instructor will start the next question shortly.</p>
+                    </div>
+                </div>
+                
+                <div class="live-question-area" id="live-question-display" style="display: none;">
+                    <!-- Live question will be displayed here -->
+                </div>
+            </div>
+            
+            <div class="live-session-actions">
+                <button class="btn btn-danger" onclick="leaveLiveSession()">
+                    <i class="fas fa-sign-out-alt"></i> Leave Session
+                </button>
             </div>
         </div>
     </section>
