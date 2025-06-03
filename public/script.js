@@ -11,6 +11,7 @@ let sessionPollInterval = null;
 let questionTimerInterval = null;
 let currentDisplayedQuestionId = null;
 let isQuestionActive = false;
+let instructorPollInterval = null;
 
 // API Base URL
 const API_BASE = '';
@@ -654,7 +655,6 @@ async function nextQuestion() {
     }
 }
 
-// Update the endSession function for instructors
 async function endSession() {
     if (!currentSession) {
         showToast('No active session found', 'error');
@@ -680,6 +680,9 @@ async function endSession() {
         if (response.ok) {
             showToast('Session ended successfully', 'success');
             document.getElementById('active-session').style.display = 'none';
+            
+            // Stop polling
+            stopInstructorPolling();
             
             // Show instructor leaderboard
             displayInstructorResults(data.leaderboard, currentSession.sessionid);
@@ -861,6 +864,9 @@ function displayActiveSession(session) {
     
     // Update control buttons based on question state
     updateInstructorControls(session);
+    
+    // Start polling for session updates (participant count, etc.)
+    pollInstructorSessionUpdates(session.sessionid);
 }
 
 function updateInstructorControls(session) {
@@ -1144,46 +1150,6 @@ function startQuestionTimer(timeLimit) {
         }
     }, 1000);
 }
-
-// Fix 6: Enhanced session polling with question updates
-// function pollSessionUpdates(sessionId) {
-//     if (sessionPollInterval) {
-//         clearInterval(sessionPollInterval);
-//     }
-    
-//     sessionPollInterval = setInterval(async () => {
-//         try {
-//             const response = await fetch(`/live-sessions/${sessionId}`, {
-//                 headers: {
-//                     'Authorization': `Bearer ${localStorage.getItem('token')}`
-//                 }
-//             });
-            
-//             if (response.ok) {
-//                 const sessionData = await response.json();
-                
-//                 // Check if session has ended
-//                 if (!sessionData.isActive) {
-//                     console.log('Session ended, loading results...');
-//                     showToast('Session has ended! Loading results...', 'info');
-//                     stopSessionPolling();
-//                     await showSessionResults(sessionId);
-//                     return;
-//                 }
-                
-//                 updatePlayerSessionUI(sessionData);
-//             } else if (response.status === 404) {
-//                 console.log('Session not found, loading results...');
-//                 showToast('Session has ended', 'info');
-//                 stopSessionPolling();
-//                 await showSessionResults(sessionId);
-//             }
-//         } catch (error) {
-//             console.error('Error polling session updates:', error);
-//             // Don't stop polling on network errors, just log them
-//         }
-//     }, 2000);
-// }
 
 async function showSessionResults(sessionId) {
     showLoading(true);
@@ -1510,6 +1476,46 @@ function pollSessionUpdates(sessionId) {
             // Don't stop polling on network errors, just log them
         }
     }, 2000);
+}
+
+function pollInstructorSessionUpdates(sessionId) {
+    if (instructorPollInterval) {
+        clearInterval(instructorPollInterval);
+    }
+    
+    instructorPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/live-sessions/${sessionId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            
+            if (response.ok) {
+                const sessionData = await response.json();
+                
+                // Update participant count
+                const participantsCountElement = document.getElementById('participants-count');
+                if (participantsCountElement) {
+                    participantsCountElement.textContent = sessionData.participants.length;
+                }
+                
+                // Update current session data
+                if (currentSession) {
+                    currentSession.participants = sessionData.participants;
+                }
+            }
+        } catch (error) {
+            console.error('Error polling instructor session updates:', error);
+        }
+    }, 3000); // Poll every 3 seconds
+}
+
+function stopInstructorPolling() {
+    if (instructorPollInterval) {
+        clearInterval(instructorPollInterval);
+        instructorPollInterval = null;
+    }
 }
 
 function stopSessionPolling() {
