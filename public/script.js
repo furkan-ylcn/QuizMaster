@@ -754,6 +754,24 @@ async function loadLiveSessions() {
         document.getElementById('instructor-live-controls').style.display = 'block';
         document.getElementById('player-live-controls').style.display = 'none';
         await loadQuizzesForLiveSession();
+        
+        // Check if instructor has an active session
+        try {
+            const response = await fetch('/live-sessions/my-active', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            
+            if (response.ok) {
+                const activeSession = await response.json();
+                displayActiveSession(activeSession);
+                showToast('Resumed your active session', 'info');
+            }
+        } catch (error) {
+            // No active session found, which is fine
+            console.log('No active session found');
+        }
     } else {
         document.getElementById('instructor-live-controls').style.display = 'none';
         document.getElementById('player-live-controls').style.display = 'block';
@@ -804,10 +822,10 @@ async function handleStartLiveSession(e) {
     showLoading(true);
     
     const formData = new FormData(e.target);
-    const quizId = formData.get('quizId'); // This should match the select name
+    const quizId = formData.get('quizId');
     const sessionId = formData.get('sessionId');
     
-    console.log('Starting live session with quizId:', quizId); // Debug log
+    console.log('Starting live session with quizId:', quizId);
     
     if (!quizId) {
         showToast('Please select a quiz first', 'error');
@@ -838,7 +856,31 @@ async function handleStartLiveSession(e) {
             document.getElementById('start-live-session-form').reset();
         } else {
             console.error('Server error:', data);
-            showToast(data.message || 'Failed to start live session', 'error');
+            
+            // Handle the case where instructor already has an active session
+            if (data.existingSessionId) {
+                showToast(data.message, 'warning');
+                
+                // Optionally, load the existing session
+                if (confirm('Would you like to continue with your existing session?')) {
+                    try {
+                        const existingResponse = await fetch(`/live-sessions/${data.existingSessionId}`, {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                            }
+                        });
+                        
+                        if (existingResponse.ok) {
+                            const existingSession = await existingResponse.json();
+                            displayActiveSession(existingSession);
+                        }
+                    } catch (error) {
+                        console.error('Error loading existing session:', error);
+                    }
+                }
+            } else {
+                showToast(data.message || 'Failed to start live session', 'error');
+            }
         }
     } catch (error) {
         console.error('Network error:', error);

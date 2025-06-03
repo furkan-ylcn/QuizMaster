@@ -270,6 +270,19 @@ app.post('/live-sessions', requireAuth, requireRole('instructor'), async (req, r
             return res.status(400).json({ message: 'Quiz ID is required' });
         }
         
+        // Check if instructor already has an active live session
+        const existingActiveSession = await LiveSessionModel.findOne({ 
+            instructorId: req.user._id, 
+            isActive: true 
+        });
+        
+        if (existingActiveSession) {
+            return res.status(400).json({ 
+                message: 'You already have an active live session. Please end it before starting a new one.',
+                existingSessionId: existingActiveSession.sessionid
+            });
+        }
+        
         const quiz = await QuizModel.findById(quizId);
         console.log('Found quiz:', quiz ? quiz.title : 'Not found'); // Debug log
         
@@ -280,6 +293,7 @@ app.post('/live-sessions', requireAuth, requireRole('instructor'), async (req, r
         const newLiveSession = new LiveSessionModel({
             sessionid: sessionid || new mongoose.Types.ObjectId().toString(),
             quizId,
+            instructorId: req.user._id, // Add instructor ID
         });
         
         await newLiveSession.save();
@@ -299,6 +313,24 @@ app.get('/live-sessions', requireAuth, async (req, res) => {
         const liveSessions = await LiveSessionModel.find({ isActive: true }).populate('quizId', 'title');
         res.json(liveSessions);
     } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.get('/live-sessions/my-active', requireAuth, requireRole('instructor'), async (req, res) => {
+    try {
+        const activeSession = await LiveSessionModel.findOne({ 
+            instructorId: req.user._id, 
+            isActive: true 
+        }).populate('quizId', 'title questions');
+        
+        if (!activeSession) {
+            return res.status(404).json({ message: 'No active session found' });
+        }
+        
+        res.json(activeSession);
+    } catch (error) {
+        console.error('Error fetching active session:', error);
         res.status(500).json({ message: error.message });
     }
 });

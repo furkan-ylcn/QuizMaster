@@ -19,6 +19,7 @@ const participantSchema = new mongoose.Schema({
 const liveSessionSchema = new mongoose.Schema({
     quizId: { type: mongoose.Schema.Types.ObjectId, ref: 'Quiz', required: true },
     sessionid: { type: String, required: true, unique: true, default: () => new mongoose.Types.ObjectId().toString() },
+    instructorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Users', required: true },
     isActive: { type: Boolean, default: true },
     currentQuestionIndex: { type: Number, default: 0 },
     participants: [participantSchema],
