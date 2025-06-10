@@ -25,7 +25,7 @@ passport.use(new LocalStrategy(
 // JWT strategy for token authentication
 const jwtOptions = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_SECRET || 'your_jwt_secret_key'
+    secretOrKey: process.env.JWT_SECRET || 'cokgizlifurkan123'
 };
 
 passport.use(new JwtStrategy(jwtOptions, async (jwtPayload, done) => {
